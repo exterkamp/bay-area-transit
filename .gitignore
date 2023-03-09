@@ -105,3 +105,6 @@ dist
 
 # Project Secrets.
 secrets/
+
+# Just a folder for JSON responses that I've cached.
+cached_data/
