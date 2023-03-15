@@ -1,0 +1,16 @@
+$default-padding: 16px;
+
+
+.main {
+    background-color: lightgray;
+    height: 100vh;
+}
+
+.maxWidthContainer {
+    max-width: 80vw;
+    min-width: 500px;
+    background-color: white;
+    height: 100%;
+    margin: auto;
+    padding: $default-padding;
+}

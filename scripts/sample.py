@@ -3,6 +3,9 @@ import requests
 import codecs
 import urllib.parse
 import json
+import time as timetime
+from datetime import datetime, time
+# from datetime import time
 
 config = configparser.ConfigParser()
 # your cfg file here.
@@ -93,6 +96,9 @@ stopPointsById = {}
 for stop in s:
     stopPointsById[stop["id"]] = stop
 
+# for _, stop in stopPointsById.items():
+#     print(f"{stop['Name']}")
+
 p = readCachedResponseFile("cached_patterns_L2.json") # getPatternForLine("CT", "L2")
 # print(p)
 
@@ -111,25 +117,57 @@ for journey in journeys:
 for direction, journeys in journeysSortedByDirection.items():
     print(direction)
     for journey in journeys:
-        print("\t", journey["Name"])
-        for point in journey["PointsInSequence"]["TimingPointInJourneyPattern"]:
-            print(f"\t\t({point['ScheduledStopPointRef']}) - {point['Name']}")
-
+        points = journey["PointsInSequence"]["TimingPointInJourneyPattern"]
+        starting_point = points[0]
+        print(f"\t{starting_point['Name']} -> {journey['DestinationDisplayView']['FontText']}")
+        print(f"\t\tstops: {len(points)}")
+        # patternStr = []
+        # for point in points:
+        #     patternStr.append(point['ScheduledStopPointRef'])
+        #     # print(f"\t\t({point['ScheduledStopPointRef']}) - {point['Name']}")
+        # print(f"\t\t{', '.join(patternStr)}")
 t = readCachedResponseFile("cached_timetable_L2.json")["Content"] # getPatternForLine("CT", "L2")
 
 routes = t["ServiceFrame"]["routes"]["Route"]
 
-print("L2 Routes")
-for route in routes:
-    print(f"({route['id']}) - {route['Name']}")
+# print("L2 Routes")
+# for route in routes:
+#     print(f"({route['id']}) - {route['Name']}")
 
 timetable = t["TimetableFrame"]
 for entry in timetable:
     print(f"({entry['id']}) - {entry['Name']}")
     journeys = entry["vehicleJourneys"]["ServiceJourney"]
     for journey in journeys:
-        print(f"vic: {journey['id']} route ref: {journey['JourneyPatternView']['RouteRef']['ref']}")
-        for call in journey["calls"]["Call"]:
-            stopPointRef = call['ScheduledStopPointRef']['ref']
-            stopPoint = stopPointsById[stopPointRef]
-            print(f"\t{call['Arrival']['Time']} @ {stopPoint['Name']}")
+        calls = journey["calls"]["Call"]
+        
+        # start_time = time.strptime(calls[0]['Arrival']['Time'], '%H:%M:%S')
+        # end_time = time.strptime(calls[-1]['Arrival']['Time'], '%H:%M:%S')
+        
+        start_time = time.fromisoformat(calls[0]['Arrival']['Time'])
+        startDaysOffset = int(calls[0]['Arrival']['DaysOffset'])
+
+        # maybe days offset        
+        end_time = time.fromisoformat(calls[-1]['Arrival']['Time'])
+        endDaysOffset = int(calls[-1]['Arrival']['DaysOffset'])
+
+        start_datetime = datetime.combine(datetime(1,1,1+startDaysOffset), start_time)
+        end_datetime = datetime.combine(datetime(1,1,1+endDaysOffset), end_time)
+
+       
+        
+        duration = (end_datetime - start_datetime).total_seconds()
+        # str(datetime.timedelta(seconds=666))
+        
+        # timetime.strptime('%S', str(duration.total_seconds()))
+        # start_time = 
+        # end_time = calls[-1]['Arrival']['Time']
+        # duration = end_time - start_time
+
+        print(f"vic: {journey['id']} {start_time.strftime('%I:%M %p')} - {end_time.strftime('%I:%M %p')} ({timetime.strftime('%Hh %Mm', timetime.gmtime(duration))})")
+        
+        # for call in :
+        #     stopPointRef = call['ScheduledStopPointRef']['ref']
+        #     stopPoint = stopPointsById[stopPointRef]
+        #     print(f"\t{call['Arrival']['Time']} @ {stopPoint['Name']}")
+
