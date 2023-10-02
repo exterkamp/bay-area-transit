@@ -26,5 +26,6 @@ $ python scripts/import_gtfs.py
 
 ```sh
 $ cd bayareatransit
+$ python manage.py migrate
 $ python manage.py runserver 0.0.0.0:10500
 ```
