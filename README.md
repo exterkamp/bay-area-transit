@@ -21,3 +21,10 @@ By default `CT` is the only feed pulled.
 ```sh
 $ python scripts/import_gtfs.py
 ```
+
+## Run Django App
+
+```sh
+$ cd bayareatransit
+$ python manage.py runserver 0.0.0.0:10500
+```

@@ -3,3 +3,7 @@ data/*
 
 # Secrets.
 secrets/*
+
+# Django files
+bayareatransit/db.sqlite3
+**/__pycache__

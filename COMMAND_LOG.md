@@ -4,4 +4,5 @@
 # initialize project
 $ django-admin startproject bayareatransit
 
+$ python manage.py startapp backend
 ```
