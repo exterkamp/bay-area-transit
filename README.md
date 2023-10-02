@@ -13,3 +13,11 @@ config to add:
 API_KEY=...
 BASE_URL=https://api.511.org
 ```
+
+## Get a feed
+
+By default `CT` is the only feed pulled.
+
+```sh
+$ python scripts/import_gtfs.py
+```
