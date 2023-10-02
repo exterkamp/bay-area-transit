@@ -92,13 +92,15 @@ for operator in operators_dict:
     op_id = operator['Id']
     if op_id not in interesting_feeds:
         continue
-    print(f"downloading feed for: {op_id}")
 
     if not os.path.isdir(buildPath("../data/operators/feeds")):
         os.mkdir(buildPath("../data/operators/feeds"))
 
     if not check_modification_file(buildPath(f"../data/operators/feeds/{op_id}/LAST_MODIFIED")):
+        print(f"using existing feeds")
         continue
+
+    print(f"downloading feed for: {op_id}")
 
     zip_feed = downloadFeed(op_id)
     if zip_feed is None:
