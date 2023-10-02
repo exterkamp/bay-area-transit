@@ -4,6 +4,8 @@ import os
 import logging
 
 from .feed_info import FeedInfo
+from .agency import Agency
+from .route import Route
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +55,10 @@ class Feed(models.Model):
         #     filelist = zfile.namelist()
 
         gtfs_order = (
-            # Agency, Stop, Route, Service, ServiceDate, ShapePoint, Trip,
+            Agency, 
+            # Stop, 
+            Route,
+            # Service, ServiceDate, ShapePoint, Trip,
             # StopTime, Frequency, Fare, FareRule, Transfer, 
             FeedInfo,
         )

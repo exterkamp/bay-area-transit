@@ -77,14 +77,14 @@ class Base(models.Model):
                 if value.strip():
                     related = field.related_model
                     key1 = "{}:{}".format(related.__name__, rel_name)
-                    key2 = text_type(value)
+                    key2 = str(value)
 
                     # Load existing objects
                     if key1 not in cache:
                         pairs = related.objects.filter(
                             **{related._rel_to_feed: feed}).values_list(
                             rel_name, 'id')
-                        cache[key1] = dict((text_type(x), i) for x, i in pairs)
+                        cache[key1] = dict((str(x), i) for x, i in pairs)
 
                     # Create new?
                     if key2 not in cache[key1]:

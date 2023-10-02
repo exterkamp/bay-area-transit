@@ -29,3 +29,12 @@ $ cd bayareatransit
 $ python manage.py migrate
 $ python manage.py runserver 0.0.0.0:10500
 ```
+
+### Django commands
+
+```sh
+$ python bayareatransit/manage.py makemigrations
+$ python bayareatransit/manage.py migrate
+$ python bayareatransit/manage.py import_gtfs data/operators/feeds/CT --name=test
+$ python bayareatransit/manage.py runserver 0.0.0.0:10500
+```
