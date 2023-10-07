@@ -59,6 +59,9 @@ def check_modification_file(path, seconds=600):
             return True
         return False   
 
+if not os.path.isdir(buildPath("../data")):
+    os.mkdir(os.path.join(base_path,"../data"))
+
 if not os.path.isdir(buildPath("../data/operators")):
     os.mkdir(os.path.join(base_path,"../data/operators"))
 

@@ -4,8 +4,11 @@ from codecs import BOM_UTF8
 from csv import reader, writer
 from collections import defaultdict
 from datetime import datetime
-
+import logging
 import re
+
+logger = logging.getLogger(__name__)
+
 
 re_point = re.compile(r'(?P<name>point)\[(?P<index>\d)\]')
 batch_size = 1000

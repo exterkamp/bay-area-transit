@@ -6,6 +6,7 @@ import logging
 from .feed_info import FeedInfo
 from .agency import Agency
 from .route import Route
+from .stop import Stop
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ class Feed(models.Model):
     """
     name = models.CharField(max_length=255)
     created = models.DateTimeField(auto_now_add=True)
-    meta = models.JSONField(blank=True, null=True)
+    meta = models.JSONField(default=dict(), blank=True)
 
 
     def __str__(self):
@@ -56,7 +57,7 @@ class Feed(models.Model):
 
         gtfs_order = (
             Agency, 
-            # Stop, 
+            Stop, 
             Route,
             # Service, ServiceDate, ShapePoint, Trip,
             # StopTime, Frequency, Fare, FareRule, Transfer, 
