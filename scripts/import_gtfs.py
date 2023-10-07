@@ -89,7 +89,7 @@ else:
 
 # Go through all the operators
 
-interesting_feeds = ["CT"]
+interesting_feeds = ["CT", "BA"]
 
 for operator in operators_dict:
     op_id = operator['Id']

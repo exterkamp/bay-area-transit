@@ -3,7 +3,7 @@ from django.db.models.fields.related import ManyToManyField
 from codecs import BOM_UTF8
 from csv import reader, writer
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import re
 
@@ -11,8 +11,33 @@ logger = logging.getLogger(__name__)
 
 
 re_point = re.compile(r'(?P<name>point)\[(?P<index>\d)\]')
+re_duration = re.compile(r'')
 batch_size = 1000
 CSV_BOM = BOM_UTF8.decode('utf-8')
+
+def parse_seconds(value):
+    '''
+    Parse string into Seconds instances.
+
+    Handled formats:
+    HH:MM:SS
+    HH:MM
+    SS
+    '''
+    svalue = str(value)
+    colons = svalue.count(':')
+    if colons == 2:
+        hours, minutes, seconds = [int(v) for v in svalue.split(':')]
+    elif colons == 1:
+        hours, minutes = [int(v) for v in svalue.split(':')]
+        seconds = 0
+    elif colons == 0:
+        hours = 0
+        minutes = 0
+        seconds = int(svalue)
+    else:
+        raise ValueError('Must be in seconds or HH:MM:SS format')
+    return hours, minutes, seconds
 
 class Base(models.Model):
     """Base class for models that are defined in the GTFS spec
@@ -64,6 +89,11 @@ class Base(models.Model):
                 return value[1:]
             else:
                 return (value or 0.0)
+        
+        def dur_convert(value):
+            """Convert HH:MM:SS to timedelta"""
+            hours, minutes, seconds = parse_seconds(value)
+            return timedelta(hours=hours, minutes=minutes, seconds=seconds)
 
         cache = {}
 
@@ -137,6 +167,8 @@ class Base(models.Model):
                 converter = bool_convert
             elif isinstance(field, models.CharField):
                 converter = char_convert
+            elif isinstance(field, models.DurationField):
+                converter = dur_convert
             elif field.is_relation:
                 converter = instance_convert(field, feed, rel_name)
                 assert not isinstance(field, models.ManyToManyField)

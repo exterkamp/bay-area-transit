@@ -7,6 +7,13 @@ from .feed_info import FeedInfo
 from .agency import Agency
 from .route import Route
 from .stop import Stop
+from .stop_time import StopTime
+from .service import Service
+from .service_date import ServiceDate
+from .trip import Trip
+from .frequency import Frequency
+from .fare import Fare, FareRule
+from .transfer import Transfer
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +67,15 @@ class Feed(models.Model):
             Agency, 
             Stop, 
             Route,
-            # Service, ServiceDate, ShapePoint, Trip,
-            # StopTime, Frequency, Fare, FareRule, Transfer, 
+            Service,
+            ServiceDate,
+            # ShapePoint,
+            Trip,
+            StopTime,
+            Frequency, 
+            Fare,
+            FareRule,
+            Transfer, 
             FeedInfo,
         )
         # post_save.disconnect(dispatch_uid='post_save_shapepoint')
