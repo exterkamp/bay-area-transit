@@ -49,7 +49,7 @@ class Stop(Base):
             ('1', 'Some wheelchair boarding'),
             ('2', 'No wheelchair boarding')),
         help_text='Is wheelchair boarding possible?')
-    extra_data = models.JSONField(default={}, blank=True, null=True)
+    extra_data = models.JSONField(default=dict, blank=True, null=True)
 
     def __str__(self):
         return "%d-%s" % (self.feed_id, self.stop_id)
@@ -91,8 +91,8 @@ class Stop(Base):
         ('stop_code', 'code'),
         ('stop_name', 'name'),
         ('stop_desc', 'desc'),
-        # ('stop_lat', 'point[1]'),
-        # ('stop_lon', 'point[0]'),
+        ('stop_lat', 'point[1]'),
+        ('stop_lon', 'point[0]'),
         ('zone_id', 'zone__zone_id'),
         ('stop_url', 'url'),
         ('location_type', 'location_type'),

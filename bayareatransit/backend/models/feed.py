@@ -17,14 +17,15 @@ class Feed(models.Model):
     This data is not part of the General Transit Feed Specification.  It is
     used to allow storage of several GTFS feeds in the same database.
     """
+    operator_id = models.CharField(max_length=255)
     name = models.CharField(max_length=255)
     created = models.DateTimeField(auto_now_add=True)
-    meta = models.JSONField(default=dict(), blank=True)
+    meta = models.JSONField(default=dict, blank=True)
 
 
     def __str__(self):
         if self.name:
-            return "%d %s" % (self.id, self.name)
+            return f"{self.id} {self.name} @ {self.created}"
         else:
             return "%d" % self.id
 
