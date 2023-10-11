@@ -1,0 +1,41 @@
+name: bay-area-transit
+services:
+  db:
+    image: postgres
+    volumes:
+      - database_volume:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    networks:
+      - backend
+  backend:
+    build:
+      context: ./bayareatransit
+      dockerfile: Dockerfile
+    command: python manage.py runserver 0.0.0.0:${API_INTERNAL_PORT}
+    volumes:
+      - ./bayareatransit:/code
+    ports:
+      - "${API_PORT}:${API_INTERNAL_PORT}"
+    environment:
+      - POSTGRES_NAME=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    depends_on:
+      - db
+    healthcheck:
+      test: curl --fail http://localhost:${API_INTERNAL_PORT}/healthz || exit 1
+      interval: 10s
+      retries: 5
+      start_period: 5s
+      timeout: 10s
+    networks:
+      - backend
+      - frontend
+volumes:
+  database_volume:
+networks:
+  backend:
+  frontend:
