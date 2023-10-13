@@ -38,6 +38,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     "backend",
+    # gis
+    "django.contrib.gis",
     # extensions
     "django_extensions",
     # rest framework
@@ -80,7 +82,7 @@ WSGI_APPLICATION = 'bayareatransit.wsgi.application'
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
+        "ENGINE": "django.contrib.gis.db.backends.postgis",
         "NAME": os.environ.get("POSTGRES_NAME"),
         "USER": os.environ.get("POSTGRES_USER"),
         "PASSWORD": os.environ.get("POSTGRES_PASSWORD"),

@@ -22,7 +22,21 @@ By default `CT` is the only feed pulled.
 $ python scripts/import_gtfs.py
 ```
 
-## Run Django App
+## Run Docker compose Stack
+
+Run the initialization script.
+
+```sh
+$ ./init.sh
+```
+
+When you're done, bring it all down.
+
+```sh
+$ ./reset.sh
+```
+
+## Run Django App (pre-docker)
 
 ```sh
 $ cd bayareatransit

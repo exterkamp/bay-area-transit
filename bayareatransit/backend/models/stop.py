@@ -1,12 +1,12 @@
 from django.db import models
 from backend.models.base import Base
 import logging
-from io import StringIO  
-
+from io import StringIO
+from django.contrib.gis.db import models
 
 logger = logging.getLogger(__name__)
 
-# TODO: Geo fields.
+
 class Stop(Base):
     """A stop or station
 
@@ -26,8 +26,8 @@ class Stop(Base):
         "description",
         max_length=255, blank=True,
         help_text='Description of a stop.')
-    # point = models.PointField(
-    #     help_text='WGS 84 latitude/longitude of stop or station')
+    point = models.PointField(
+        help_text='WGS 84 latitude/longitude of stop or station')
     zone = models.ForeignKey(
         'Zone', null=True, blank=True, on_delete=models.SET_NULL,
         help_text="Fare zone for a stop ID.")
@@ -54,36 +54,36 @@ class Stop(Base):
     def __str__(self):
         return "%d-%s" % (self.feed_id, self.stop_id)
 
-    # def getlon(self):
-    #     return self.point[0] if self.point else 0.0
+    def getlon(self):
+        return self.point[0] if self.point else 0.0
 
-    # def setlon(self, value):
-    #     if self.point:
-    #         self.point[0] = value
-    #     else:
-    #         self.point = "POINT(%s 0)" % value
+    def setlon(self, value):
+        if self.point:
+            self.point[0] = value
+        else:
+            self.point = "POINT(%s 0)" % value
 
-    # lon = property(getlon, setlon, doc="WGS 84 longitude of stop or station")
+    lon = property(getlon, setlon, doc="WGS 84 longitude of stop or station")
 
-    # def getlat(self):
-    #     return self.point[1] if self.point else 0.0
+    def getlat(self):
+        return self.point[1] if self.point else 0.0
 
-    # def setlat(self, value):
-    #     if self.point:
-    #         self.point[1] = value
-    #     else:
-    #         self.point = "POINT(0 %s)" % value
+    def setlat(self, value):
+        if self.point:
+            self.point[1] = value
+        else:
+            self.point = "POINT(0 %s)" % value
 
-    # lat = property(getlat, setlat, doc="WGS 84 latitude of stop or station")
+    lat = property(getlat, setlat, doc="WGS 84 latitude of stop or station")
 
     def __init__(self, *args, **kwargs):
-        # lat = kwargs.pop('lat', None)
-        # lon = kwargs.pop('lon', None)
-        # if lat is not None or lon is not None:
-        #     assert kwargs.get('point') is None
-        #     msg = "Setting Stop location with lat and lon is deprecated"
-        #     warnings.warn(msg, DeprecationWarning)
-        #     kwargs['point'] = "POINT(%s %s)" % (lon or 0.0, lat or 0.0)
+        lat = kwargs.pop('lat', None)
+        lon = kwargs.pop('lon', None)
+        if lat is not None or lon is not None:
+            assert kwargs.get('point') is None
+            msg = "Setting Stop location with lat and lon is deprecated"
+            warnings.warn(msg, DeprecationWarning)
+            kwargs['point'] = "POINT(%s %s)" % (lon or 0.0, lat or 0.0)
         super(Stop, self).__init__(*args, **kwargs)
 
     _column_map = (

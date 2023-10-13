@@ -245,10 +245,6 @@ class Base(models.Model):
             else:
                 unique_line[ukey] = csv_reader.line_num
 
-            # TODO: geo
-            if 'point' in fields:
-                del fields['point']
-
             # Create after accumulating a batch
             new_objects.append(cls(**fields))
             if len(new_objects) % batch_size == 0:  # pragma: no cover
