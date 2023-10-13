@@ -1,5 +1,8 @@
 from django.db import models
 from backend.models.base import Base
+from django.contrib.gis.db import models
+from django.contrib.gis.geos import MultiLineString
+
 
 class Route(Base):
     """A transit route
@@ -43,25 +46,25 @@ class Route(Base):
     text_color = models.CharField(
         max_length=6, blank=True,
         help_text="Color of route text in hex")
-    geometry = models.TextField(
+    geometry = models.MultiLineStringField(
         null=True, blank=True,
         help_text='Geometry cache of Trips')
     extra_data = models.JSONField(blank=True, null=True)
 
-    # def update_geometry(self):
-    #     """Update the geometry from the Trips"""
-    #     original = self.geometry
-    #     trips = self.trip_set.exclude(geometry__isnull=True)
-    #     unique_coords = set()
-    #     unique_geom = list()
-    #     for t in trips:
-    #         coords = t.geometry.coords
-    #         if coords not in unique_coords:
-    #             unique_coords.add(coords)
-    #             unique_geom.append(t.geometry)
-    #     self.geometry = MultiLineString(unique_geom)
-    #     if self.geometry != original:
-    #         self.save()
+    def update_geometry(self):
+        """Update the geometry from the Trips"""
+        original = self.geometry
+        trips = self.trip_set.exclude(geometry__isnull=True)
+        unique_coords = set()
+        unique_geom = list()
+        for t in trips:
+            coords = t.geometry.coords
+            if coords not in unique_coords:
+                unique_coords.add(coords)
+                unique_geom.append(t.geometry)
+        self.geometry = MultiLineString(unique_geom)
+        if self.geometry != original:
+            self.save()
 
     def __str__(self):
         return "%d-%s" % (self.feed.id, self.route_id)

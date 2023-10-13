@@ -14,6 +14,8 @@ from .trip import Trip
 from .frequency import Frequency
 from .fare import Fare, FareRule
 from .transfer import Transfer
+from .shape import ShapePoint, post_save_shapepoint
+from django.db.models.signals import post_save
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +71,7 @@ class Feed(models.Model):
             Route,
             Service,
             ServiceDate,
-            # ShapePoint,
+            ShapePoint,
             Trip,
             StopTime,
             Frequency, 
@@ -78,53 +80,52 @@ class Feed(models.Model):
             Transfer, 
             FeedInfo,
         )
-        # post_save.disconnect(dispatch_uid='post_save_shapepoint')
+        post_save.disconnect(dispatch_uid='post_save_shapepoint')
         # post_save.disconnect(dispatch_uid='post_save_stop')
-        # try:
-        for klass in gtfs_order:
-            for f in filelist:
-                if os.path.basename(f) == klass._filename:
-                    start_time = time.time()
-                    table = opener(f)
-                    count = klass.import_txt(table, self) or 0
-                    end_time = time.time()
-                    logger.info(
-                        'Imported %s (%d %s) in %0.1f seconds',
-                        klass._filename, count,
-                        klass._meta.verbose_name_plural,
-                        end_time - start_time)
-                    table.close()
-
-        # finally:
-        #     post_save.connect(post_save_shapepoint, sender=ShapePoint)
+        try:
+            for klass in gtfs_order:
+                for f in filelist:
+                    if os.path.basename(f) == klass._filename:
+                        start_time = time.time()
+                        table = opener(f)
+                        count = klass.import_txt(table, self) or 0
+                        end_time = time.time()
+                        logger.info(
+                            'Imported %s (%d %s) in %0.1f seconds',
+                            klass._filename, count,
+                            klass._meta.verbose_name_plural,
+                            end_time - start_time)
+                        table.close()
+        finally:
+            post_save.connect(post_save_shapepoint, sender=ShapePoint)
         #     post_save.connect(post_save_stop, sender=Stop)
 
-        # # Update geometries
-        # start_time = time.time()
-        # for shape in self.shape_set.all():
-        #     shape.update_geometry(update_parent=False)
-        # end_time = time.time()
-        # logger.info(
-        #     "Updated geometries for %d shapes in %0.1f seconds",
-        #     self.shape_set.count(), end_time - start_time)
+        # Update geometries
+        start_time = time.time()
+        for shape in self.shape_set.all():
+            shape.update_geometry(update_parent=False)
+        end_time = time.time()
+        logger.info(
+            "Updated geometries for %d shapes in %0.1f seconds",
+            self.shape_set.count(), end_time - start_time)
 
-        # start_time = time.time()
-        # trips = Trip.objects.in_feed(self)
-        # for trip in trips:
-        #     trip.update_geometry(update_parent=False)
-        # end_time = time.time()
-        # logger.info(
-        #     "Updated geometries for %d trips in %0.1f seconds",
-        #     trips.count(), end_time - start_time)
+        start_time = time.time()
+        trips = Trip.objects.in_feed(self)
+        for trip in trips:
+            trip.update_geometry(update_parent=False)
+        end_time = time.time()
+        logger.info(
+            "Updated geometries for %d trips in %0.1f seconds",
+            trips.count(), end_time - start_time)
 
-        # start_time = time.time()
-        # routes = self.route_set.all()
-        # for route in routes:
-        #     route.update_geometry()
-        # end_time = time.time()
-        # logger.info(
-        #     "Updated geometries for %d routes in %0.1f seconds",
-        #     routes.count(), end_time - start_time)
+        start_time = time.time()
+        routes = self.route_set.all()
+        for route in routes:
+            route.update_geometry()
+        end_time = time.time()
+        logger.info(
+            "Updated geometries for %d routes in %0.1f seconds",
+            routes.count(), end_time - start_time)
 
         total_end = time.time()
         logger.info(

@@ -39,6 +39,47 @@ def parse_seconds(value):
         raise ValueError('Must be in seconds or HH:MM:SS format')
     return hours, minutes, seconds
 
+
+class BaseQuerySet(models.QuerySet):
+    def populated_column_map(self):
+        '''Return the _column_map without unused optional fields'''
+        column_map = []
+        cls = self.model
+        for csv_name, field_pattern in cls._column_map:
+            # Separate the local field name from foreign columns
+            if '__' in field_pattern:
+                field_name = field_pattern.split('__', 1)[0]
+            else:
+                field_name = field_pattern
+
+            # Handle point fields
+            point_match = re_point.match(field_name)
+            if point_match:
+                field = None
+            else:
+                field = cls._meta.get_field(field_name)
+
+            # Only add optional columns if they are used in the records
+            if field and field.blank and not field.has_default():
+                kwargs = {field_name: get_blank_value(field)}
+                if self.exclude(**kwargs).exists():
+                    column_map.append((csv_name, field_pattern))
+            else:
+                column_map.append((csv_name, field_pattern))
+        return column_map
+
+
+class BaseManager(models.Manager):
+    def get_queryset(self):
+        '''Return the custom queryset.'''
+        return BaseQuerySet(self.model)
+
+    def in_feed(self, feed):
+        '''Return the objects in the target feed'''
+        kwargs = {self.model._rel_to_feed: feed}
+        return self.filter(**kwargs)
+
+
 class Base(models.Model):
     """Base class for models that are defined in the GTFS spec
 
@@ -66,6 +107,8 @@ class Base(models.Model):
 
     # The relation of the model to the feed it belongs to.
     _rel_to_feed = 'feed'
+
+    objects = BaseManager()
 
     @classmethod
     def import_txt(cls, txt_file, feed, filter_func=None):

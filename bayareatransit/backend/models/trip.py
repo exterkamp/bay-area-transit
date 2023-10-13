@@ -1,5 +1,6 @@
 from django.db import models
 from backend.models.base import Base
+from django.contrib.gis.db import models
 
 
 class Block(Base):
@@ -41,14 +42,12 @@ class Trip(Base):
     block = models.ForeignKey(
         'Block', null=True, blank=True, on_delete=models.SET_NULL,
         help_text="Block of sequential trips that this trip belongs to.")
-    # TODO: geo
-    shape_id = models.CharField(max_length=255)
-    # shape = models.ForeignKey(
-    #     'Shape', null=True, blank=True, on_delete=models.SET_NULL,
-    #     help_text="Shape used for this trip")
-    # geometry = models.LineStringField(
-    #     null=True, blank=True,
-    #     help_text='Geometry cache of Shape or Stops')
+    shape = models.ForeignKey(
+        'Shape', null=True, blank=True, on_delete=models.SET_NULL,
+        help_text="Shape used for this trip")
+    geometry = models.LineStringField(
+        null=True, blank=True,
+        help_text='Geometry cache of Shape or Stops')
     wheelchair_accessible = models.CharField(
         max_length=1, blank=True,
         choices=(
@@ -65,27 +64,23 @@ class Trip(Base):
         help_text='Are bicycles allowed?')
     extra_data = models.JSONField(default=dict, blank=True, null=True)
 
-    # def update_geometry(self, update_parent=True):
-    #     """Update the geometry from the Shape or Stops"""
-    #     original = self.geometry
-    #     if self.shape:
-    #         self.geometry = self.shape.geometry
-    #     else:
-    #         stoptimes = self.stoptime_set.order_by('stop_sequence')
-    #         if stoptimes.count() > 1:
-    #             self.geometry = LineString(
-    #                 [st.stop.point.coords for st in stoptimes])
-    #     if self.geometry != original:
-    #         self.save()
-    #         if update_parent:
-    #             self.route.update_geometry()
+    def update_geometry(self, update_parent=True):
+        """Update the geometry from the Shape or Stops"""
+        original = self.geometry
+        if self.shape:
+            self.geometry = self.shape.geometry
+        else:
+            stoptimes = self.stoptime_set.order_by('stop_sequence')
+            if stoptimes.count() > 1:
+                self.geometry = LineString(
+                    [st.stop.point.coords for st in stoptimes])
+        if self.geometry != original:
+            self.save()
+            if update_parent:
+                self.route.update_geometry()
 
     def __str__(self):
         return "%s-%s" % (self.route, self.trip_id)
-
-    # class Meta:
-    #     db_table = 'trip'
-    #     app_label = 'multigtfs'
 
     _column_map = (
         ('route_id', 'route__route_id'),
@@ -95,7 +90,7 @@ class Trip(Base):
         ('trip_short_name', 'short_name'),
         ('direction_id', 'direction'),
         ('block_id', 'block__block_id'),
-        ('shape_id', 'shape_id'),
+        ('shape_id', 'shape__shape_id'),
         ('wheelchair_accessible', 'wheelchair_accessible'),
         ('bikes_allowed', 'bikes_allowed'),
     )

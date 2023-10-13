@@ -13,6 +13,7 @@ from .models.trip import Trip, Block
 from .models.frequency import Frequency
 from .models.fare import Fare, FareRule
 from .models.transfer import Transfer
+from .models.shape import Shape, ShapePoint
 
 # Register your models here.
 admin.site.register(Feed)
@@ -30,3 +31,5 @@ admin.site.register(Frequency)
 admin.site.register(Fare)
 admin.site.register(FareRule)
 admin.site.register(Transfer)
+admin.site.register(ShapePoint)
+admin.site.register(Shape)
