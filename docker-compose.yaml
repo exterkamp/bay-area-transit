@@ -1,5 +1,17 @@
 name: bay-area-transit
 services:
+  web:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "${WEB_PORT}:80"
+    depends_on:
+      - backend
+      - nextapp
+    networks:
+      - frontend
   db:
     image: postgis/postgis:16-3.4
     volumes:
@@ -39,6 +51,20 @@ services:
       retries: 5
       start_period: 5s
       timeout: 10s
+    networks:
+      - backend
+      - frontend
+  nextapp:
+    container_name: next-app
+    build:
+      context: ./next-app
+      dockerfile: dev.Dockerfile
+    volumes:
+      - ./next-app/src:/app/src
+      - ./next-app/public:/app/public
+    restart: always
+    ports:
+      - 3000:3000
     networks:
       - backend
       - frontend

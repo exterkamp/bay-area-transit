@@ -18,7 +18,7 @@ router = ExtendedSimpleRouter()
 )
 
 feeds_routes = router.register(
-    r'feeds',
+    r'api/v1/feeds',
     FeedViewSet,
     basename='feeds'
 )

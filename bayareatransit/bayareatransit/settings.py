@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "django_extensions",
     # rest framework
     'rest_framework',
+    'rest_framework_gis',
 ]
 
 MIDDLEWARE = [

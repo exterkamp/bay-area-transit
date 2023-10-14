@@ -8,3 +8,6 @@ secrets/*
 bayareatransit/db.sqlite3
 **/__pycache__
 **/migrations/*
+
+# example files
+with-docker-compose-app/*
