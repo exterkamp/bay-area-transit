@@ -41,9 +41,9 @@ export default function Caltrain() {
         <hr />
         <h2>Trips</h2>
         <div>
-            {trips?.map(t => {
+            {trips?.map((t, idx) => {
                 if (!activeServices.includes(t.service)) return;
-                return (<div>
+                return (<div key={idx}>
                     {t.short_name}: {t.headsign} {convertDirectionToStr(parseInt(t.direction))}
                 </div>);})}
         </div>

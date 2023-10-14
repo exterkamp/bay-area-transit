@@ -7,7 +7,7 @@ class StopTime(Base):
 
     This implements stop_times.txt in the GTFS feed
     """
-    trip = models.ForeignKey('Trip', on_delete=models.CASCADE)
+    trip = models.ForeignKey('Trip', related_name="stops", on_delete=models.CASCADE)
     stop = models.ForeignKey('Stop', on_delete=models.CASCADE)
     arrival_time = models.DurationField(
         default=timedelta, null=True, blank=True,

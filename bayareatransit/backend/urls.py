@@ -6,7 +6,7 @@ from .views.user import UserViewSet
 from .views.feed import FeedViewSet, FeedInfoViewSet
 from .views.agency import AgencyViewSet
 from .views.route import RouteViewSet
-from .views.trip import TripViewSet
+from .views.trip import TripViewSet, ToplevelTripViewSet
 from .views.stop import StopViewSet
 from .views.service import ServiceViewSet
 from .views.stop_time import StopTimeViewSet
@@ -35,11 +35,17 @@ feeds_routes.register(
     basename='stops',
     parents_query_lookups=['feed']
 )
-feeds_routes.register(
-    r'trips',
-    TripViewSet,
-    basename='trips',
-    parents_query_lookups=['route__feed']
+(
+    feeds_routes.register(
+                    r'trips',
+                    ToplevelTripViewSet,
+                    basename='trips',
+                    parents_query_lookups=['route__feed'])
+                .register(
+                    r'stops',
+                    StopTimeViewSet,
+                    basename='stops',
+                    parents_query_lookups=['trip__route__feed', 'trip'])
 )
 feeds_routes.register(
     r'services',
