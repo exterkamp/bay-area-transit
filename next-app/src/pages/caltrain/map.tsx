@@ -1,12 +1,7 @@
 import Head from 'next/head'
-import Map from '../components/map'
+import Map from '../../components/map'
 import { useState, useEffect } from 'react'
-import { useSWR } from '../lib/fetcher';
-// import { Marker } from 'react-leaflet/Marker'
-// import { Popup } from 'react-leaflet/Popup'
-
-
-
+import { useSWR } from '../../lib/fetcher';
 
 export default function Caltrain() {
     const [center, setCenter] = useState([37.4334, -122.0815]);
@@ -17,17 +12,7 @@ export default function Caltrain() {
 
     useEffect(() => {
         if (stops === undefined) return;
-        // let points = stops.map(stop => stop.point.coordinates).map(coors => coors.reverse());
-        // console.log(points);
         setMarkers(stops);
-        // setMarkers()
-
-        // setPersonnel(organization.personnel);
-        // let config = organization.mapBoxConfig;
-        // if (!!config) {
-        //     setCenter([config.lat, config.lng]);
-        //     setZoom(config.defaultZoom);
-        // }
     }, [stops])
 
   return (
@@ -38,22 +23,12 @@ export default function Caltrain() {
       </Head>
 
       <main>
-        <h1>Caltrain</h1>
         <div>
             <Map center={center} zoom={zoom} markers={markers}>
                     {({ Marker, Popup }: any) => 
-                    
-                    // (
-                    //     <>
-                    //         <Marker position={center} />
-                    //     </>
-                        
-                    // )
-
-                    
-                        markers.map((marker, idx) => 
-                        {
+                        markers.map((marker, idx) => {
                             console.log(marker);
+                            if (marker.location_type !== "1") return;
                             let position = marker.point.coordinates.reverse();
                             return (
                                 <Marker key={`marker-${idx}`} position={position}>
@@ -61,15 +36,7 @@ export default function Caltrain() {
                                         <span>{marker.name}</span>
                                     </Popup>
                                 </Marker>)
-                        }
-                    )
-                
-                    
-                    }
-                {/* {markers.map((position, idx) => 
-                    <Marker key={`marker-${idx}`} position={position}>
-                    </Marker>
-                )} */}
+                        })}
             </Map>
         </div>
       </main>

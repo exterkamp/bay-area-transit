@@ -8,6 +8,7 @@ from .views.agency import AgencyViewSet
 from .views.route import RouteViewSet
 from .views.trip import TripViewSet
 from .views.stop import StopViewSet
+from .views.service import ServiceViewSet
 from .views.stop_time import StopTimeViewSet
 from .views.healthcheck import healthcheck
 from rest_framework_extensions.routers import ExtendedSimpleRouter
@@ -34,6 +35,19 @@ feeds_routes.register(
     basename='stops',
     parents_query_lookups=['feed']
 )
+feeds_routes.register(
+    r'trips',
+    TripViewSet,
+    basename='trips',
+    parents_query_lookups=['route__feed']
+)
+feeds_routes.register(
+    r'services',
+    ServiceViewSet,
+    basename='service',
+    parents_query_lookups=['feed']
+)
+
 (
     feeds_routes.register(r'agencies',
                           AgencyViewSet,

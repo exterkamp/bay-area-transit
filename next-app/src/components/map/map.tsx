@@ -18,7 +18,7 @@ export default function MapWithMarkers({ children, className, ...rest }: any /* 
             <MapContainer {...rest}
                 id="map"
                 scrollWheelZoom={false}
-                style={{ height: '400px', }}
+                style={{ height: "100%", }}
                 ref={setMap} >
                 <TileLayer
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -50,7 +50,7 @@ export default function MapWithMarkers({ children, className, ...rest }: any /* 
     }, [map, rest.center, rest.zoom]);
 
     return (
-        <div>
+        <div style={{ position: "fixed", inset: 0 }}>
             {map ? <DisplayPosition map={map} center={rest.center} initialZoom={rest.zoom} updateCenterCallback={rest.updateCenterCallback} /> : null}
             {displayMap}
         </div>
@@ -92,9 +92,9 @@ function DisplayPosition({ map, center, initialZoom, updateCenterCallback }: any
     }, [map, onZoom])
 
     return (
-        <div>
+        <div style={{ position: "absolute", top: "25px", left: "50px", zIndex: 1000, }}>
             <div>
-                latitude: {position.lat.toFixed(4)}, longitude: {position.lng.toFixed(4)}{' '} (zoom: {zoom})
+                <mark>latitude: {position.lat.toFixed(4)}, longitude: {position.lng.toFixed(4)}{' '} (zoom: {zoom})</mark>
             </div>
             <button onClick={onClick}>reset map</button>
             {/* TODO: make this set the parent to the new center for the OP. */}
