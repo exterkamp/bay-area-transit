@@ -38,6 +38,8 @@ def test_next_trains_in_order(ctx):
         "short_name": "Local",
         "color": "#99d7dc",
         "text_color": "#000000",
+        "agency": "TT",
+        "type": 2,
     }
     express = result["trips"][1]
     assert express["stops_between"] == 0
@@ -108,9 +110,15 @@ def test_bad_requests(ctx):
         queries.plan(ctx, "", "south", at)
     with pytest.raises(NotFound):
         queries.plan(ctx, "south", "atlantis", at)
-    with pytest.raises(NotFound):
-        # Platforms aren't stations.
-        queries.plan(ctx, "south_nb", "north", at)
+    with pytest.raises(BadRequest):
+        # A platform resolves to its station, so this is south to south.
+        queries.plan(ctx, "south_nb", "south", at)
+
+
+def test_a_platform_id_resolves_to_its_station(ctx):
+    result = queries.plan(ctx, "south_nb", "north", local(*WEDNESDAY, 7, 55))
+    assert result["from"] == {"id": "south", "name": "South"}
+    assert result["trips"]
 
 
 def test_departure_board(ctx):

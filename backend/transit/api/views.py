@@ -8,7 +8,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from transit import queries
-from transit.models import Alert, Operator, RealtimeFetch, RealtimeKind, Route, Shape, Trip
+from transit.models import Agency, Alert, Operator, RealtimeFetch, RealtimeKind, Route, Shape, Trip
 from transit.queries import BadRequest, NotFound, context_for, hex_color, iso
 
 
@@ -60,6 +60,11 @@ def operators(request):
     fetches = {}
     for fetch in RealtimeFetch.objects.all():
         fetches[(fetch.operator_id, fetch.kind)] = fetch.fetched_at
+    agencies = {}
+    for feed_pk, agency_id in Agency.objects.filter(feed__is_active=True).values_list(
+        "feed_id", "agency_id"
+    ):
+        agencies.setdefault(feed_pk, []).append(agency_id)
     result = []
     for op in Operator.objects.all():
         tz = queries.ZoneInfo(op.timezone)
@@ -80,6 +85,7 @@ def operators(request):
                     f"{kind}_at": iso(fetches.get((op.pk, kind)), tz)
                     for kind in RealtimeKind.values
                 },
+                "agencies": sorted(agencies.get(feed.pk, [])) if feed else [],
             }
         )
     return Response(result)
@@ -87,14 +93,49 @@ def operators(request):
 
 @api_view(["GET"])
 @handles_errors
+def agencies(request, code):
+    return Response(queries.agencies(context_for(code)))
+
+
+@api_view(["GET"])
+@handles_errors
+def places(request, code):
+    params = request.query_params
+    return Response(
+        queries.search_places(
+            context_for(code),
+            q=params.get("q"),
+            near=params.get("near"),
+            radius=params.get("radius"),
+            agency=params.get("agency"),
+            limit=params.get("limit"),
+        )
+    )
+
+
+@api_view(["GET"])
+@handles_errors
+def place(request, code, place_id):
+    ctx = context_for(code)
+    return Response(queries.place_dicts([queries.find_place(ctx, place_id)])[0])
+
+
+@api_view(["GET"])
+@handles_errors
 def stations(request, code):
-    return Response(queries.stations(context_for(code)))
+    params = request.query_params
+    return Response(
+        queries.stations(context_for(code), agency=params.get("agency"), route=params.get("route"))
+    )
 
 
 @api_view(["GET"])
 @handles_errors
 def routes(request, code):
     ctx = context_for(code)
+    routes = Route.objects.filter(feed=ctx.feed).select_related("agency")
+    if agency := request.query_params.get("agency"):
+        routes = routes.filter(agency__agency_id__in=queries.agency_ids(agency))
     return Response(
         [
             {
@@ -104,8 +145,9 @@ def routes(request, code):
                 "type": r.route_type,
                 "color": hex_color(r.color, "#888888"),
                 "text_color": hex_color(r.text_color, "#000000"),
+                "agency": r.agency.agency_id,
             }
-            for r in Route.objects.filter(feed=ctx.feed)
+            for r in routes
         ]
     )
 
@@ -114,21 +156,28 @@ def routes(request, code):
 @handles_errors
 def shapes(request, code):
     ctx = context_for(code)
+    trips = Trip.objects.filter(feed=ctx.feed, shape__isnull=False)
+    if agency := request.query_params.get("agency"):
+        trips = trips.filter(route__agency__agency_id__in=queries.agency_ids(agency))
+    if route := request.query_params.get("route"):
+        trips = trips.filter(route__route_id=route)
     route_of_shape = {}
-    for shape_id, route_id, route_color in (
-        Trip.objects.filter(feed=ctx.feed, shape__isnull=False)
-        .order_by("route__route_id")
-        .values_list("shape_id", "route__route_id", "route__color")
+    for shape_id, route_id, route_color, agency_id in trips.order_by("route__route_id").values_list(
+        "shape_id", "route__route_id", "route__color", "route__agency__agency_id"
     ):
-        route_of_shape.setdefault(shape_id, (route_id, route_color))
+        route_of_shape.setdefault(shape_id, (route_id, route_color, agency_id))
     features = []
     for shape in Shape.objects.filter(feed=ctx.feed, pk__in=route_of_shape):
-        route_id, route_color = route_of_shape[shape.pk]
+        route_id, route_color, agency_id = route_of_shape[shape.pk]
         features.append(
             {
                 "type": "Feature",
                 "geometry": {"type": "LineString", "coordinates": list(shape.geometry.coords)},
-                "properties": {"route_id": route_id, "color": hex_color(route_color, "#888888")},
+                "properties": {
+                    "route_id": route_id,
+                    "color": hex_color(route_color, "#888888"),
+                    "agency": agency_id,
+                },
             }
         )
     return Response({"type": "FeatureCollection", "features": features})
@@ -167,7 +216,7 @@ def trip(request, code, trip_id):
 @api_view(["GET"])
 @handles_errors
 def vehicles(request, code):
-    return Response(queries.vehicles(context_for(code)))
+    return Response(queries.vehicles(context_for(code), agency=request.query_params.get("agency")))
 
 
 @api_view(["GET"])

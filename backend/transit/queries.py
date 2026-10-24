@@ -4,21 +4,29 @@ Everything takes an operator's active feed and returns plain dicts shaped
 like docs/api.md, so views stay thin and tests can call these directly.
 """
 
+import math
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from django.contrib.gis.geos import Point
+from django.contrib.postgres.aggregates import ArrayAgg
+from django.db import connection
 from django.db.models import Max, Q
 
 from transit.gtfs.calendar import active_service_ids
 from transit.gtfs.times import secs_since_service_start, to_datetime
 from transit.models import (
     Accessibility,
+    Agency,
     FareRule,
     Feed,
     LocationType,
     Operator,
     PickupDropOff,
+    Place,
+    Route,
     Stop,
     StopTime,
     Trip,
@@ -45,7 +53,9 @@ class NotFound(Exception):
 
 
 class BadRequest(Exception):
-    code = "bad_request"
+    def __init__(self, message, code="bad_request"):
+        super().__init__(message)
+        self.code = code
 
 
 @dataclass
@@ -82,54 +92,221 @@ def route_dict(route):
         "short_name": route.short_name or route.long_name,
         "color": hex_color(route.color, "#888888"),
         "text_color": hex_color(route.text_color, "#000000"),
+        "agency": route.agency.agency_id,
+        "type": route.route_type,
     }
 
 
-# --- stations ---------------------------------------------------------------------
+# --- places -------------------------------------------------------------------------
+
+SEARCH_MIN_CHARS = 2
+NEAR_RADIUS = 1000
+NEAR_MAX_RADIUS = 5000
+# pg_trgm word_similarity a search word needs to count as a fuzzy match.
+# Shorter words must appear as written: three letters share half their
+# trigrams with too many names ("elm" and "Elsewhere").
+WORD_MATCH = 0.5
+FUZZY_MIN_CHARS = 4
 
 
-def _station_of(stop: Stop) -> Stop:
-    """The rider-facing place for a stop: its parent station, or itself."""
-    return stop.parent_station if stop.parent_station_id else stop
+def _place_ref(stop: Stop) -> dict:
+    """{"id", "name"} of the place a stop belongs to."""
+    place = stop.place if stop.place_id else None
+    if place is None:
+        # Boarding areas and the like belong to no place; name the stop itself.
+        return {"id": stop.stop_id, "name": stop.name}
+    return {"id": place.place_id, "name": place.name}
 
 
-def stations(ctx: Context) -> list[dict]:
-    feed = ctx.feed
-    stops = list(Stop.objects.filter(feed=feed).select_related("parent_station"))
-    by_pk = {s.pk: s for s in stops}
-    places = [s for s in stops if s.location_type == LocationType.STATION]
-    if not places:
-        # Feeds without stations: every free-standing stop is its own station.
-        places = [
-            s for s in stops if s.location_type == LocationType.STOP and not s.parent_station_id
-        ]
-    platforms = {}
-    for s in stops:
-        if s.location_type == LocationType.STOP and s.parent_station_id:
-            platforms.setdefault(s.parent_station_id, []).append(s)
-
-    order = _line_order(feed, by_pk)
-    rank = {pk: i for i, pk in enumerate(order)}
-    places.sort(key=lambda s: (rank.get(s.pk, len(rank)), s.name))
+def agencies(ctx: Context) -> list[dict]:
+    types = {}
+    for agency_pk, route_type in (
+        Route.objects.filter(feed=ctx.feed).values_list("agency_id", "route_type").distinct()
+    ):
+        types.setdefault(agency_pk, set()).add(route_type)
     return [
         {
-            "id": s.stop_id,
-            "name": s.name,
-            "lat": s.lat,
-            "lon": s.lon,
-            "zone": s.zone_id,
-            "wheelchair_boarding": ACCESSIBILITY_NAMES[s.wheelchair_boarding],
-            "platforms": [
-                {"id": p.stop_id, "name": p.name, "platform_code": p.platform_code}
-                for p in sorted(platforms.get(s.pk, []), key=lambda p: p.stop_id)
-            ],
+            "id": a.agency_id,
+            "name": a.name,
+            "url": a.url,
+            "timezone": a.timezone,
+            "route_types": sorted(types.get(a.pk, ())),
         }
-        for s in places
+        for a in Agency.objects.filter(feed=ctx.feed).order_by("agency_id")
     ]
 
 
-def _line_order(feed, by_pk) -> list[int]:
-    """Station pks in line order, north end first.
+def agency_ids(value) -> list[str]:
+    return [a.strip() for a in (value or "").split(",") if a.strip()]
+
+
+def place_dicts(places, distances=None) -> list[dict]:
+    """Full place dicts, with routes and platforms loaded in two queries."""
+    pks = [p.pk for p in places]
+    routes = {}
+    links = Place.routes.through.objects.filter(place_id__in=pks).select_related("route__agency")
+    for link in links:
+        routes.setdefault(link.place_id, []).append(link.route)
+    platforms = {}
+    for stop in Stop.objects.filter(place_id__in=pks, location_type=LocationType.STOP).order_by(
+        "stop_id"
+    ):
+        platforms.setdefault(stop.place_id, []).append(stop)
+    result = []
+    for place in places:
+        served = sorted(
+            routes.get(place.pk, []),
+            key=lambda r: (r.agency.agency_id, r.sort_order or 0, r.short_name or r.long_name),
+        )
+        item = {
+            "id": place.place_id,
+            "name": place.name,
+            "kind": place.kind,
+            "lat": place.lat,
+            "lon": place.lon,
+            "zone": place.zone_id,
+            "wheelchair_boarding": ACCESSIBILITY_NAMES[place.wheelchair_boarding],
+            "agencies": sorted({r.agency.agency_id for r in served}),
+            "routes": [route_dict(r) for r in served],
+            "platforms": [
+                {"id": p.stop_id, "name": p.name, "platform_code": p.platform_code}
+                for p in platforms.get(place.pk, [])
+            ],
+        }
+        if distances is not None:
+            item["distance_m"] = round(distances[place.pk])
+        result.append(item)
+    return result
+
+
+def find_place(ctx: Context, place_id: str) -> Place:
+    """A place by its id, or by the stop_id of any stop in it."""
+    place = Place.objects.filter(feed=ctx.feed, place_id=place_id).first()
+    if place is None:
+        stop = (
+            Stop.objects.filter(feed=ctx.feed, stop_id=place_id, place__isnull=False)
+            .select_related("place")
+            .first()
+        )
+        place = stop and stop.place
+    if place is None:
+        raise NotFound(f"unknown place {place_id!r}")
+    return place
+
+
+def search_places(ctx: Context, q=None, near=None, radius=None, agency=None, limit=None):
+    limit = _parse_limit(limit, 20)
+    words = re.findall(r"\w+", (q or "").casefold())
+    if q is not None and len("".join(words)) < SEARCH_MIN_CHARS:
+        raise BadRequest(f"q needs at least {SEARCH_MIN_CHARS} letters or digits")
+    if not words and near is None:
+        raise BadRequest("give q, near, or both")
+    point = _parse_near(near) if near is not None else None
+    radius = _parse_radius(radius)
+
+    sql = [f'SELECT p.id FROM "{Place._meta.db_table}" p WHERE p.feed_id = %s']
+    params = [ctx.feed.pk]
+    sql.append(
+        f"""AND EXISTS (SELECT 1 FROM "{Place.routes.through._meta.db_table}" pr
+        JOIN "{Route._meta.db_table}" r ON r.id = pr.route_id
+        JOIN "{Agency._meta.db_table}" a ON a.id = r.agency_id
+        WHERE pr.place_id = p.id {"AND a.agency_id = ANY(%s)" if agency else ""})"""
+    )
+    if agency:
+        params.append(agency_ids(agency))
+    score = []
+    for word in words:
+        # Every word must appear, as a substring or a close fuzzy match.
+        if len(word) >= FUZZY_MIN_CHARS:
+            sql.append("AND (p.name ILIKE %s OR word_similarity(%s, p.name) >= %s)")
+            params += [f"%{word}%", word, WORD_MATCH]
+        else:
+            sql.append("AND p.name ILIKE %s")
+            params.append(f"%{word}%")
+        score.append("word_similarity(%s, p.name)")
+    score_params = list(words)
+    if point is not None:
+        geography = "ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography"
+        distance = f"ST_Distance(p.point::geography, {geography})"
+        if not words:
+            sql.append(f"AND ST_DWithin(p.point::geography, {geography}, %s)")
+            params += [point[1], point[0], radius]
+        order = f"{distance}, p.name"
+        order_params = [point[1], point[0]]
+    else:
+        prefix = "(lower(p.name) LIKE %s)"
+        # Equally good matches: stations before street stops, then names that
+        # start with the first word, then shorter names.
+        order = (
+            f"({' + '.join(score)}) DESC, (p.kind = 'station') DESC, {prefix} DESC, "
+            "length(p.name), p.name"
+        )
+        order_params = [f"{words[0]}%", *score_params]
+    query = " ".join(sql) + f" ORDER BY {order} LIMIT %s"
+    with connection.cursor() as cursor:
+        cursor.execute(query, [*params, *order_params, limit])
+        pks = [row[0] for row in cursor.fetchall()]
+
+    places = Place.objects.in_bulk(pks)
+    ordered = [places[pk] for pk in pks]
+    distances = None
+    if point is not None:
+        here = Point(point[1], point[0], srid=4326)
+        distances = {p.pk: _meters(here, p.point) for p in ordered}
+    return {"places": place_dicts(ordered, distances)}
+
+
+def _parse_near(value):
+    try:
+        lat, lon = (float(part) for part in value.split(","))
+    except ValueError:
+        raise BadRequest("near must be lat,lon") from None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        raise BadRequest("near is out of range")
+    return lat, lon
+
+
+def _parse_radius(value):
+    if value in (None, ""):
+        return NEAR_RADIUS
+    try:
+        radius = int(value)
+    except ValueError:
+        raise BadRequest("radius must be an integer") from None
+    if not 1 <= radius <= NEAR_MAX_RADIUS:
+        raise BadRequest(f"radius must be between 1 and {NEAR_MAX_RADIUS}")
+    return radius
+
+
+def _meters(a, b):
+    """Great-circle distance in meters between two lon/lat points."""
+    lat1, lat2 = math.radians(a.y), math.radians(b.y)
+    dlat, dlon = lat2 - lat1, math.radians(b.x - a.x)
+    h = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    return 2 * 6_371_000 * math.asin(math.sqrt(h))
+
+
+# --- stations (places in line order) -----------------------------------------------
+
+
+def stations(ctx: Context, agency=None, route=None) -> list[dict]:
+    trips = Trip.objects.filter(feed=ctx.feed)
+    if agency:
+        trips = trips.filter(route__agency__agency_id__in=agency_ids(agency))
+    if route:
+        trips = trips.filter(route__route_id=route)
+    if not agency and not route and Agency.objects.filter(feed=ctx.feed).count() > 1:
+        raise BadRequest(
+            "this feed has several agencies: filter by agency or route, or search places",
+            code="filter_required",
+        )
+    order = _line_order(ctx.feed, trips)
+    places = Place.objects.in_bulk(order)
+    return place_dicts([places[pk] for pk in order])
+
+
+def _line_order(feed, trips) -> list[int]:
+    """Place pks served by ``trips``, in line order, north end first.
 
     Every distinct stopping pattern contributes "A comes before B" edges, all
     oriented the same way as the longest pattern, and a topological sort merges
@@ -138,19 +315,28 @@ def _line_order(feed, by_pk) -> list[int]:
     Ties, and anything a loop route makes unsortable, follow the longest
     pattern, then latitude.
     """
-    patterns = {}
-    for trip_pk, stop_pk in (
-        StopTime.objects.filter(feed=feed)
-        .order_by("trip_id", "stop_sequence")
-        .values_list("trip_id", "stop_id")
-    ):
-        station = _station_of(by_pk[stop_pk]).pk
-        seq = patterns.setdefault(trip_pk, [])
-        if station not in seq:
-            seq.append(station)
-    distinct = sorted({tuple(p) for p in patterns.values() if p}, key=len, reverse=True)
+    patterns = set()
+    rows = (
+        StopTime.objects.filter(feed=feed, trip__in=trips, stop__place__isnull=False)
+        .values("trip_id")
+        .annotate(places=ArrayAgg("stop__place_id", order_by="stop_sequence"))
+        .values_list("places", flat=True)
+    )
+    for places in rows:
+        seq = []
+        for pk in places:
+            if pk not in seq:
+                seq.append(pk)
+        patterns.add(tuple(seq))
+    distinct = sorted(patterns, key=lambda p: (-len(p), p))
     if not distinct:
         return []
+    lat = {
+        pk: point.y
+        for pk, point in Place.objects.filter(
+            pk__in={pk for p in distinct for pk in p}
+        ).values_list("pk", "point")
+    }
     reference = list(distinct[0])
     rank = {pk: i for i, pk in enumerate(reference)}
 
@@ -168,7 +354,7 @@ def _line_order(feed, by_pk) -> list[int]:
                 indegree[b] += 1
 
     def priority(pk):
-        return (rank.get(pk, len(rank)), -(by_pk[pk].lat or 0))
+        return (rank.get(pk, len(rank)), -lat[pk])
 
     order = []
     ready = sorted((pk for pk, n in indegree.items() if n == 0), key=priority)
@@ -180,31 +366,18 @@ def _line_order(feed, by_pk) -> list[int]:
             if indegree[nxt] == 0:
                 ready.append(nxt)
         ready.sort(key=priority)
-    order += sorted((pk for pk in indegree if pk not in order), key=priority)
+    placed = set(order)
+    order += sorted((pk for pk in indegree if pk not in placed), key=priority)
 
-    if (by_pk[order[0]].lat or 0) < (by_pk[order[-1]].lat or 0):
+    if lat[order[0]] < lat[order[-1]]:
         order.reverse()
     return order
 
 
-def find_station(ctx: Context, station_id: str) -> Stop:
-    station = (
-        Stop.objects.filter(feed=ctx.feed, stop_id=station_id)
-        .filter(
-            Q(location_type=LocationType.STATION)
-            | Q(location_type=LocationType.STOP, parent_station__isnull=True)
-        )
-        .first()
-    )
-    if station is None:
-        raise NotFound(f"unknown station {station_id!r}")
-    return station
-
-
-def _boarding_stop_pks(station: Stop) -> set[int]:
-    """Where you can actually board at a station: its platforms, or the stop itself."""
-    pks = set(station.children.filter(location_type=LocationType.STOP).values_list("pk", flat=True))
-    return pks or {station.pk}
+def _boarding_stop_pks(place: Place) -> set[int]:
+    """Where you can actually board at a place: its stops, not the station node."""
+    pks = set(place.stops.filter(location_type=LocationType.STOP).values_list("pk", flat=True))
+    return pks or set(place.stops.values_list("pk", flat=True))
 
 
 # --- schedule search ----------------------------------------------------------------
@@ -252,27 +425,54 @@ class TripData:
     """Everything needed to render trips: the trip, its calls and their realtime."""
 
     trips: dict
-    calls: dict  # trip pk -> [StopTime], in sequence order
+    calls: dict  # trip pk -> [CallRow], in sequence order
     realtime: dict  # (trip pk, service date) -> TripRealtime
+
+
+@dataclass(slots=True)
+class CallRow:
+    """A stop time as the read side uses it.
+
+    A board at a busy station loads every call of a few hundred trips, and
+    full StopTime instances (each with its stop, place and two geometries)
+    cost a hundred times more than the query that fetches them.
+    """
+
+    stop_sequence: int
+    arrival_secs: int | None
+    departure_secs: int | None
+    stop: Stop
 
 
 def _load(ctx, legs) -> TripData:
     trip_pks = {leg.trip_pk for leg in legs}
-    trips = Trip.objects.filter(pk__in=trip_pks).select_related("route").in_bulk()
-    calls = {}
-    for st in (
+    trips = Trip.objects.filter(pk__in=trip_pks).select_related("route__agency").in_bulk()
+    rows = list(
         StopTime.objects.filter(trip_id__in=trip_pks)
-        .select_related("stop__parent_station")
         .order_by("trip_id", "stop_sequence")
-    ):
-        calls.setdefault(st.trip_id, []).append(st)
+        .values_list("trip_id", "stop_sequence", "arrival_secs", "departure_secs", "stop_id")
+    )
+    stops = (
+        Stop.objects.filter(pk__in={row[4] for row in rows})
+        .select_related("place")
+        .defer("point", "desc", "place__point")
+        .in_bulk()
+    )
+    calls = {}
+    for trip_pk, seq, arrival, departure, stop_pk in rows:
+        calls.setdefault(trip_pk, []).append(CallRow(seq, arrival, departure, stops[stop_pk]))
     index = RealtimeIndex(ctx.operator, [t.trip_id for t in trips.values()])
     realtime = {}
     for leg in legs:
         key = (leg.trip_pk, leg.service_date)
-        if key not in realtime:
+        if key in realtime:
+            continue
+        trip_id = trips[leg.trip_pk].trip_id
+        if not index.covers(trip_id):
+            realtime[key] = TripRealtime()
+        else:
             realtime[key] = index.for_trip(
-                trips[leg.trip_pk].trip_id,
+                trip_id,
                 leg.service_date,
                 _calls(ctx, calls[leg.trip_pk], leg.service_date),
             )
@@ -356,9 +556,9 @@ def plan(ctx: Context, from_id, to_id, at: datetime, limit=None) -> dict:
     limit = _parse_limit(limit, 10)
     if not from_id or not to_id:
         raise BadRequest("from and to are required")
-    if from_id == to_id:
-        raise BadRequest("from and to must be different stations")
-    origin, destination = find_station(ctx, from_id), find_station(ctx, to_id)
+    origin, destination = find_place(ctx, from_id), find_place(ctx, to_id)
+    if origin.pk == destination.pk:
+        raise BadRequest("from and to must be different places")
     to_pks = _boarding_stop_pks(destination)
 
     legs = []
@@ -411,8 +611,8 @@ def plan(ctx: Context, from_id, to_id, at: datetime, limit=None) -> dict:
             fare = fare_between(ctx, board.stop, alight.stop, trip.route_id)
 
     return {
-        "from": {"id": origin.stop_id, "name": origin.name},
-        "to": {"id": destination.stop_id, "name": destination.name},
+        "from": {"id": origin.place_id, "name": origin.name},
+        "to": {"id": destination.place_id, "name": destination.name},
         "at": iso(at, ctx.tz),
         "fare": fare,
         "trips": trips,
@@ -421,7 +621,7 @@ def plan(ctx: Context, from_id, to_id, at: datetime, limit=None) -> dict:
 
 def departures(ctx: Context, station_id, at: datetime, limit=None) -> dict:
     limit = _parse_limit(limit, 20)
-    station = find_station(ctx, station_id)
+    station = find_place(ctx, station_id)
     stop_pks = _boarding_stop_pks(station)
     legs = []
     for service_date in _search_dates(ctx, at):
@@ -448,24 +648,25 @@ def departures(ctx: Context, station_id, at: datetime, limit=None) -> dict:
         trip = data.trips[leg.trip_pk]
         calls = data.calls[leg.trip_pk]
         board = next(st for st in calls if st.stop_sequence == leg.board_seq)
-        end = _station_of(calls[-1].stop)
         est = rt.at(leg.board_seq)
         result.append(
             {
                 **_trip_summary(trip, leg.service_date, _status(rt, est)),
                 "depart": _endpoint(ctx, board, leg.service_date, est, "departure"),
-                "destination": {"id": end.stop_id, "name": end.name},
+                "destination": _place_ref(calls[-1].stop),
             }
         )
     return {
-        "station": {"id": station.stop_id, "name": station.name},
+        "station": {"id": station.place_id, "name": station.name},
         "at": iso(at, ctx.tz),
         "departures": result,
     }
 
 
 def trip_detail(ctx: Context, trip_id, service_date: date) -> dict:
-    trip = Trip.objects.filter(feed=ctx.feed, trip_id=trip_id).select_related("route").first()
+    trip = (
+        Trip.objects.filter(feed=ctx.feed, trip_id=trip_id).select_related("route__agency").first()
+    )
     if trip is None:
         raise NotFound(f"unknown trip {trip_id!r}")
     if trip.service_id not in active_service_ids(ctx.feed, service_date):
@@ -478,13 +679,13 @@ def trip_detail(ctx: Context, trip_id, service_date: date) -> dict:
     stops = []
     for st in data.calls[trip.pk]:
         est = rt.at(st.stop_sequence)
-        station = _station_of(st.stop)
+        place = _place_ref(st.stop)
         stops.append(
             {
                 "sequence": st.stop_sequence,
                 "stop_id": st.stop.stop_id,
-                "station_id": station.stop_id,
-                "name": station.name,
+                "station_id": place["id"],
+                "name": place["name"],
                 "arrival": _time_dict(
                     ctx, st.arrival_secs, service_date, est.arrival, est.arrival_delay
                 ),
@@ -509,8 +710,8 @@ def trip_detail(ctx: Context, trip_id, service_date: date) -> dict:
 
 def fare_between(ctx, board: Stop, alight: Stop, route_pk) -> dict | None:
     """Cheapest fare_rules match for a ride, preferring zone rules over flat fares."""
-    origin = board.zone_id or (board.parent_station.zone_id if board.parent_station_id else "")
-    dest = alight.zone_id or (alight.parent_station.zone_id if alight.parent_station_id else "")
+    origin = board.zone_id or (board.place.zone_id if board.place_id else "")
+    dest = alight.zone_id or (alight.place.zone_id if alight.place_id else "")
     rules = FareRule.objects.filter(feed=ctx.feed, contains_id="").filter(
         Q(route__isnull=True) | Q(route_id=route_pk)
     )
@@ -535,7 +736,7 @@ _VEHICLE_STATUS = {
 }
 
 
-def vehicles(ctx: Context, trip_ids=None) -> list[dict]:
+def vehicles(ctx: Context, trip_ids=None, agency=None) -> list[dict]:
     from transit.models import RealtimeKind
     from transit.realtime.overlay import is_fresh
 
@@ -544,12 +745,18 @@ def vehicles(ctx: Context, trip_ids=None) -> list[dict]:
     positions = VehiclePosition.objects.filter(operator=ctx.operator)
     if trip_ids is not None:
         positions = positions.filter(trip_id__in=trip_ids)
+    if agency:
+        positions = positions.filter(
+            trip_id__in=Trip.objects.filter(
+                feed=ctx.feed, route__agency__agency_id__in=agency_ids(agency)
+            ).values("trip_id")
+        )
     positions = list(positions.order_by("trip_id", "vehicle_id"))
     trips = {
         t.trip_id: t
         for t in Trip.objects.filter(
             feed=ctx.feed, trip_id__in={p.trip_id for p in positions if p.trip_id}
-        ).select_related("route")
+        ).select_related("route__agency")
     }
     result = []
     for p in positions:

@@ -92,6 +92,11 @@ only once it is complete. Realtime is stored as replaceable snapshots keyed
 by GTFS ids, never foreign keys, so a feed swap can't break it. See the
 docstrings in `backend/transit/models/`.
 
+**Places** are derived at import, not read from GTFS: a station with its
+platforms, or same-named stops within 300 m (both sides of a street). They
+are what riders search for (`places?q=`, trigram-matched), plan between and
+see boards for, so picking the wrong side of the street still finds trips.
+
 Not modelled: frequencies.txt, transfers.txt, fare products beyond the base
 fare, and journeys that need a transfer (San Francisco to Gilroy changes
 at San Jose for the South County connector).

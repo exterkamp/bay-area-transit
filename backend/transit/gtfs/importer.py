@@ -42,6 +42,7 @@ from transit.models import (
     Feed,
     LocationType,
     Operator,
+    Place,
     Route,
     Service,
     ServiceDate,
@@ -51,6 +52,7 @@ from transit.models import (
     Trip,
 )
 
+from .places import build_places
 from .times import parse_gtfs_date, parse_gtfs_time
 
 logger = logging.getLogger(__name__)
@@ -373,14 +375,21 @@ _DELETE_ORDER = (
     ServiceDate,
     Service,
     Shape,
-    Route,
     Stop,
+    Place,
+    Route,
     Agency,
 )
 
 
 def delete_feed(feed: Feed):
     with transaction.atomic(), connection.cursor() as cursor:
+        # The place-route links are the one table without a feed_id.
+        cursor.execute(
+            f'DELETE FROM "{Place.routes.through._meta.db_table}" WHERE place_id IN '
+            f'(SELECT id FROM "{Place._meta.db_table}" WHERE feed_id = %s)',
+            [feed.pk],
+        )
         for model in _DELETE_ORDER:
             cursor.execute(f'DELETE FROM "{model._meta.db_table}" WHERE feed_id = %s', [feed.pk])
         feed.delete()
@@ -432,6 +441,7 @@ class _Importer:
         self.save_trips()
         self.stop_times()
         self.fares()
+        self.counts["places"] = build_places(self.feed)
         return self.counts
 
     def feed_info(self):

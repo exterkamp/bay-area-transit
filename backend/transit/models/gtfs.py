@@ -99,6 +99,10 @@ class Stop(models.Model):
         choices=Accessibility.choices, default=Accessibility.UNKNOWN
     )
     platform_code = models.CharField(max_length=64, blank=True)
+    # Set by the importer for stops and stations; see transit.models.places.
+    place = models.ForeignKey(
+        "Place", null=True, blank=True, on_delete=models.SET_NULL, related_name="stops"
+    )
 
     class Meta:
         constraints = [

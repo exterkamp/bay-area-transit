@@ -74,6 +74,9 @@ class RealtimeIndex:
         for update in updates:
             self.by_trip.setdefault(update.trip_id, []).append(update)
 
+    def covers(self, trip_id) -> bool:
+        return trip_id in self.by_trip
+
     def for_trip(self, trip_id, service_date: date, calls: list[Call]) -> TripRealtime:
         candidates = self.by_trip.get(trip_id, [])
         dated = [u for u in candidates if u.start_date == service_date]

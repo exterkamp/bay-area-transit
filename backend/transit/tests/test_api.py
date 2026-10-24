@@ -54,7 +54,7 @@ def test_shapes_are_geojson(client):
     assert shapes["type"] == "FeatureCollection"
     [feature] = shapes["features"]
     assert feature["geometry"]["coordinates"][0] == [-122.1, 37.4]
-    assert feature["properties"] == {"route_id": "LOC", "color": "#99d7dc"}
+    assert feature["properties"] == {"route_id": "LOC", "color": "#99d7dc", "agency": "TT"}
 
 
 def test_plan(client):

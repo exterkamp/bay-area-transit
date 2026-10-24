@@ -15,6 +15,7 @@ from .gtfs import (
     StopTime,
     Trip,
 )
+from .places import Place, PlaceKind
 from .realtime import (
     Alert,
     RealtimeFetch,
@@ -38,6 +39,8 @@ __all__ = [
     "LocationType",
     "Operator",
     "PickupDropOff",
+    "Place",
+    "PlaceKind",
     "RealtimeFetch",
     "RealtimeKind",
     "Route",

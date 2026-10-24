@@ -35,6 +35,7 @@ def test_imports_everything(feed):
         "stop_times": 16,
         "fares": 3,
         "fare_rules": 4,
+        "places": 3,
     }
     assert feed.operator.timezone == "America/Los_Angeles"
     assert feed.operator.name == "Test Transit"
