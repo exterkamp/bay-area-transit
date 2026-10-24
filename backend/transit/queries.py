@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 from django.contrib.gis.geos import Point
 from django.contrib.postgres.aggregates import ArrayAgg
+from django.core.cache import cache
 from django.db import connection
 from django.db.models import Max, Min, Q
 from django.utils import timezone
@@ -743,9 +744,34 @@ _VEHICLE_STATUS = {
 }
 
 
+# Every map polls /vehicles, and estimating positions costs a few hundred
+# milliseconds. In this long an estimate moves a few hundred meters at most.
+VEHICLES_CACHE_SECONDS = 10
+
+
 def vehicles(ctx: Context, trip_ids=None, agency=None, now=None) -> list[dict]:
-    """GPS positions, plus estimated ones for live trips that have no GPS."""
-    now = now or timezone.now()
+    """GPS positions, plus estimated ones for live trips that have no GPS.
+
+    Computed for the whole feed and cached for VEHICLES_CACHE_SECONDS, then
+    filtered, unless a fixed ``now`` is given (tests).
+    """
+    if now is not None:
+        return _vehicles(ctx, trip_ids, agency, now)
+    key = f"vehicles:{ctx.feed.pk}"
+    everything = cache.get(key)
+    if everything is None:
+        everything = _vehicles(ctx, None, None, timezone.now())
+        cache.set(key, everything, VEHICLES_CACHE_SECONDS)
+    wanted = set(agency_ids(agency))
+    return [
+        v
+        for v in everything
+        if (trip_ids is None or v["trip_id"] in trip_ids)
+        and (not wanted or (v["route"] is not None and v["route"]["agency"] in wanted))
+    ]
+
+
+def _vehicles(ctx, trip_ids, agency, now) -> list[dict]:
     gps = []
     if is_fresh(ctx.operator, RealtimeKind.VEHICLE_POSITIONS):
         gps = _gps_vehicles(ctx, trip_ids, agency)

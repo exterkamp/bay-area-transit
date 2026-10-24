@@ -4,6 +4,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
+from django.core.cache import cache
 
 from transit.gtfs.importer import import_feed
 from transit.models import Operator
@@ -33,3 +34,11 @@ def gtfs_dir(tmp_path):
     target = tmp_path / "gtfs"
     shutil.copytree(MINI, target)
     return target
+
+
+@pytest.fixture(autouse=True)
+def empty_cache():
+    """Cached snapshots (vehicles) must not leak from one test into the next."""
+    cache.clear()
+    yield
+    cache.clear()

@@ -286,7 +286,9 @@ given. Two kinds, told apart by `source`:
   at the platform while it's due to be standing there. BART sends no
   positions, so all BART vehicles are estimated.
 
-Empty list when realtime is stale (>10 minutes): GPS needs fresh vehicle
+The list is computed for the whole feed at most every 10 seconds and
+shared by all requests, so polling faster than that returns the same
+snapshot. Empty list when realtime is stale (>10 minutes): GPS needs fresh vehicle
 positions, estimates need fresh trip updates. Use `/operators`
 `realtime.*_at` to tell stale from "nothing running". `stop_id` is a
 platform id, as in `trips[].stops[].stop_id`.

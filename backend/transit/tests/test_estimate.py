@@ -146,3 +146,19 @@ def test_a_vehicle_id_shared_by_several_trips_is_dropped(ctx):
     store(ctx.operator, "trip_updates", message(build))
     [v] = estimated(ctx, at(8, 12, 30))
     assert v["vehicle_id"] is None
+
+
+def test_vehicles_are_cached_briefly(ctx):
+    def build(m):
+        v = m.entity.add(id="v1").vehicle
+        v.trip.trip_id = "T1"
+        v.position.latitude = 37.5
+        v.position.longitude = -122.2
+
+    store(ctx.operator, "vehicle_positions", message(build))
+    assert len(queries.vehicles(ctx)) == 1
+    store(ctx.operator, "vehicle_positions", message(lambda m: None))
+    assert len(queries.vehicles(ctx)) == 1  # still the cached snapshot
+    assert queries.vehicles(ctx, agency="XX") == []  # filtered after the cache
+    assert queries.vehicles(ctx, trip_ids=["T1"])[0]["trip_id"] == "T1"
+    assert queries.vehicles(ctx, now=timezone.now()) == []  # a fixed clock bypasses it
