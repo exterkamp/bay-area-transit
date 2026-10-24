@@ -9,6 +9,7 @@ from transit.gtfs.importer import import_feed
 from transit.models import Operator
 
 MINI = Path(__file__).parent / "fixtures" / "mini"
+REGIONAL = MINI.parent / "regional"
 TZ = ZoneInfo("America/Los_Angeles")
 
 

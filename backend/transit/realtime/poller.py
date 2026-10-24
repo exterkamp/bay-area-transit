@@ -1,6 +1,7 @@
 """Poll GTFS-realtime feeds and store each as a fresh snapshot."""
 
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from django.contrib.gis.geos import Point
@@ -12,12 +13,16 @@ from google.transit import gtfs_realtime_pb2
 from transit.client import Client511, Client511Error
 from transit.gtfs.times import parse_gtfs_date
 from transit.models import (
+    Agency,
     Alert,
     Operator,
     RealtimeFetch,
     RealtimeKind,
+    Route,
+    Stop,
     StopRelationship,
     StopTimeUpdate,
+    Trip,
     TripRelationship,
     TripUpdate,
     VehiclePosition,
@@ -58,6 +63,52 @@ def _translated(text):
     return text.translation[0].text
 
 
+@dataclass(frozen=True)
+class Scope:
+    """The ids a filtered static feed kept. Realtime about anything else is dropped.
+
+    511's regional feed covers ~41 agencies in one realtime request, and we
+    import a few of them. Without a filter there is no scope and everything
+    is stored, including trips the static feed lacks, such as added trips.
+    """
+
+    agencies: frozenset[str]
+    routes: frozenset[str]
+    stops: frozenset[str]
+    trips: frozenset[str]
+
+    @classmethod
+    def for_operator(cls, operator) -> "Scope | None":
+        feed = operator.active_feed
+        if feed is None or "filter" not in feed.stats:
+            return None
+
+        def ids(model, column):
+            return frozenset(model.objects.filter(feed=feed).values_list(column, flat=True))
+
+        return cls(
+            agencies=ids(Agency, "agency_id"),
+            routes=ids(Route, "route_id"),
+            stops=ids(Stop, "stop_id"),
+            trips=ids(Trip, "trip_id"),
+        )
+
+    def informs(self, entity) -> bool:
+        """Whether an alert's EntitySelector is about something we kept.
+
+        A selector's fields narrow each other, so every one that is set must match.
+        """
+        trip_id = entity.trip.trip_id if _has(entity, "trip") else ""
+        checks = [
+            (entity.agency_id, self.agencies),
+            (entity.route_id, self.routes),
+            (entity.stop_id, self.stops),
+            (trip_id, self.trips),
+        ]
+        given = [(value, kept) for value, kept in checks if value]
+        return bool(given) and all(value in kept for value, kept in given)
+
+
 def poll(operator: Operator, kind: str, client: Client511 | None = None) -> int:
     """Fetch one realtime feed and replace its snapshot. Returns the entity count.
 
@@ -80,15 +131,11 @@ def poll(operator: Operator, kind: str, client: Client511 | None = None) -> int:
 def store(operator, kind, message, attempted=None) -> int:
     """Replace the snapshot for (operator, kind) with ``message``."""
     attempted = attempted or timezone.now()
+    if kind not in STORERS:
+        raise ValueError(f"unknown realtime kind {kind!r}")
+    scope = Scope.for_operator(operator)
     with transaction.atomic():
-        if kind == RealtimeKind.TRIP_UPDATES:
-            count = _store_trip_updates(operator, message)
-        elif kind == RealtimeKind.VEHICLE_POSITIONS:
-            count = _store_vehicles(operator, message)
-        elif kind == RealtimeKind.ALERTS:
-            count = _store_alerts(operator, message)
-        else:
-            raise ValueError(f"unknown realtime kind {kind!r}")
+        count = STORERS[kind](operator, message, scope)
         RealtimeFetch.objects.update_or_create(
             operator=operator,
             kind=kind,
@@ -100,14 +147,17 @@ def store(operator, kind, message, attempted=None) -> int:
                 "error": "",
             },
         )
-    logger.info("%s %s: %d entities", operator.code, kind, count)
+    logger.info("%s %s: %d of %d entities kept", operator.code, kind, count, len(message.entity))
     return count
 
 
-def _store_trip_updates(operator, message):
+def _store_trip_updates(operator, message, scope):
+    # Delete the children directly: a cascade from TripUpdate would make
+    # Django load every StopTimeUpdate first.
+    StopTimeUpdate.objects.filter(trip_update__operator=operator).delete()
     TripUpdate.objects.filter(operator=operator).delete()
-    stop_updates = []
-    count = 0
+    updates = []
+    stop_updates = []  # one list per entry in updates
     for entity in message.entity:
         if entity.is_deleted or not _has(entity, "trip_update"):
             continue
@@ -115,46 +165,59 @@ def _store_trip_updates(operator, message):
         if not tu.trip.trip_id:
             # Without a trip_id there is nothing in the static feed to attach to.
             continue
+        if scope and tu.trip.trip_id not in scope.trips:
+            continue
         relationship = tu.trip.schedule_relationship
         if relationship not in TripRelationship.values:
             relationship = TripRelationship.SCHEDULED
-        trip_update = TripUpdate.objects.create(
-            operator=operator,
-            trip_id=tu.trip.trip_id,
-            start_date=_date(tu.trip.start_date),
-            schedule_relationship=relationship,
-            vehicle_id=tu.vehicle.id if _has(tu, "vehicle") else "",
-            delay=tu.delay if _has(tu, "delay") else None,
-            timestamp=_epoch(tu.timestamp),
-        )
-        count += 1
-        for stu in tu.stop_time_update:
-            has_seq = _has(stu, "stop_sequence")
-            if not has_seq and not stu.stop_id:
-                continue
-            arrival = stu.arrival if _has(stu, "arrival") else None
-            departure = stu.departure if _has(stu, "departure") else None
-            stop_updates.append(
-                StopTimeUpdate(
-                    trip_update=trip_update,
-                    stop_sequence=stu.stop_sequence if has_seq else None,
-                    stop_id=stu.stop_id,
-                    arrival_delay=arrival.delay if arrival and _has(arrival, "delay") else None,
-                    arrival_time=_epoch(arrival.time) if arrival and arrival.time else None,
-                    departure_delay=departure.delay
-                    if departure and _has(departure, "delay")
-                    else None,
-                    departure_time=_epoch(departure.time) if departure and departure.time else None,
-                    schedule_relationship=stu.schedule_relationship
-                    if stu.schedule_relationship in StopRelationship.values
-                    else StopRelationship.SCHEDULED,
-                )
+        updates.append(
+            TripUpdate(
+                operator=operator,
+                trip_id=tu.trip.trip_id,
+                start_date=_date(tu.trip.start_date),
+                schedule_relationship=relationship,
+                vehicle_id=tu.vehicle.id if _has(tu, "vehicle") else "",
+                delay=tu.delay if _has(tu, "delay") else None,
+                timestamp=_epoch(tu.timestamp),
             )
-    StopTimeUpdate.objects.bulk_create(stop_updates, batch_size=2000)
-    return count
+        )
+        stop_updates.append(_stop_time_updates(tu))
+    # Postgres returns the new primary keys, so the children can point at them.
+    TripUpdate.objects.bulk_create(updates, batch_size=2000)
+    for update, children in zip(updates, stop_updates, strict=True):
+        for child in children:
+            child.trip_update = update
+    StopTimeUpdate.objects.bulk_create(
+        [child for children in stop_updates for child in children], batch_size=5000
+    )
+    return len(updates)
 
 
-def _store_vehicles(operator, message):
+def _stop_time_updates(tu):
+    result = []
+    for stu in tu.stop_time_update:
+        has_seq = _has(stu, "stop_sequence")
+        if not has_seq and not stu.stop_id:
+            continue
+        arrival = stu.arrival if _has(stu, "arrival") else None
+        departure = stu.departure if _has(stu, "departure") else None
+        result.append(
+            StopTimeUpdate(
+                stop_sequence=stu.stop_sequence if has_seq else None,
+                stop_id=stu.stop_id,
+                arrival_delay=arrival.delay if arrival and _has(arrival, "delay") else None,
+                arrival_time=_epoch(arrival.time) if arrival and arrival.time else None,
+                departure_delay=departure.delay if departure and _has(departure, "delay") else None,
+                departure_time=_epoch(departure.time) if departure and departure.time else None,
+                schedule_relationship=stu.schedule_relationship
+                if stu.schedule_relationship in StopRelationship.values
+                else StopRelationship.SCHEDULED,
+            )
+        )
+    return result
+
+
+def _store_vehicles(operator, message, scope):
     VehiclePosition.objects.filter(operator=operator).delete()
     vehicles = []
     for entity in message.entity:
@@ -162,6 +225,10 @@ def _store_vehicles(operator, message):
             continue
         v = entity.vehicle
         if not _has(v, "position"):
+            continue
+        trip_id = v.trip.trip_id if _has(v, "trip") else ""
+        if scope and trip_id not in scope.trips:
+            # Includes vehicles with no trip: nothing says which agency runs them.
             continue
         lat, lon = v.position.latitude, v.position.longitude
         if not (-90 <= lat <= 90 and -180 <= lon <= 180) or (lat == 0 and lon == 0):
@@ -174,7 +241,7 @@ def _store_vehicles(operator, message):
                 operator=operator,
                 vehicle_id=v.vehicle.id if _has(v, "vehicle") else "",
                 label=v.vehicle.label if _has(v, "vehicle") else "",
-                trip_id=v.trip.trip_id if _has(v, "trip") else "",
+                trip_id=trip_id,
                 start_date=_date(v.trip.start_date) if _has(v, "trip") else None,
                 point=Point(lon, lat, srid=4326),
                 bearing=bearing,
@@ -193,7 +260,7 @@ def _store_vehicles(operator, message):
     return len(vehicles)
 
 
-def _store_alerts(operator, message):
+def _store_alerts(operator, message, scope):
     Alert.objects.filter(operator=operator).delete()
     alerts = {}
     for entity in message.entity:
@@ -201,6 +268,8 @@ def _store_alerts(operator, message):
             continue
         a = entity.alert
         informed = a.informed_entity
+        if scope and not any(scope.informs(e) for e in informed):
+            continue
         alerts[entity.id] = Alert(
             operator=operator,
             alert_id=entity.id,
@@ -218,3 +287,10 @@ def _store_alerts(operator, message):
         )
     Alert.objects.bulk_create(alerts.values())
     return len(alerts)
+
+
+STORERS = {
+    RealtimeKind.TRIP_UPDATES: _store_trip_updates,
+    RealtimeKind.VEHICLE_POSITIONS: _store_vehicles,
+    RealtimeKind.ALERTS: _store_alerts,
+}

@@ -71,9 +71,15 @@ Useful management commands (`$DC exec backend python manage.py ...`):
 uses the key. At the default intervals, realtime for one operator costs 46
 requests/hour (trip updates and vehicle positions every 3 minutes, alerts
 every 10), and the worker refuses to start with a schedule over
-`TRANSIT_511_HOURLY_BUDGET` (55). That's why realtime is on for Caltrain
-only. Static feeds are checked once a day and only re-imported when the
-archive changes.
+`TRANSIT_511_HOURLY_BUDGET` (55). That's why realtime is on for one
+operator at a time. Static feeds are checked once a day and only re-imported
+when the archive changes.
+
+`RG` is 511's regional feed: one static archive and one realtime request per
+kind cover every agency. `TRANSIT_RG_AGENCIES` (default `SF:0,BA,SM,CT`, so
+Muni rail, BART, SamTrans and Caltrain) picks what gets imported, and the
+poller drops realtime about anything the import left out. So realtime for all
+four costs the same 46 requests/hour as Caltrain alone.
 
 ## Data model
 

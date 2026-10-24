@@ -3,9 +3,7 @@ import pytest
 from transit.gtfs.importer import FeedFilter, GTFSValidationError, import_feed
 from transit.models import Agency, Feed, Route, Service, ServiceDate, Shape, Stop, StopTime, Trip
 
-from .conftest import MINI
-
-REGIONAL = MINI.parent / "regional"
+from .conftest import REGIONAL
 
 
 def ids(model, field, feed):
