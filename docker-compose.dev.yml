@@ -5,6 +5,8 @@
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db backend worker
 services:
   backend:
+    # Its own tag, so a production build doesn't replace this one (which has pytest/ruff).
+    image: bay-area-transit-backend:dev
     build:
       args:
         UV_GROUPS: ""
@@ -14,6 +16,7 @@ services:
     volumes:
       - ./backend:/app
   worker:
+    image: bay-area-transit-backend:dev
     build:
       args:
         UV_GROUPS: ""

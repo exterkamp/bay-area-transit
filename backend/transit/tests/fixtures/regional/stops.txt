@@ -1,0 +1,9 @@
+stop_id,stop_name,stop_lat,stop_lon,location_type,parent_station
+hub,Hub Station,37.70,-122.40,1,
+hub_rail,Hub Rail Platform,37.7001,-122.4001,0,hub
+hub_bay,Hub Bus Bay,37.7002,-122.4002,0,hub
+far,Far Station,37.50,-122.20,1,
+far_rail,Far Rail Platform,37.5001,-122.2001,0,far
+corner,Corner Bus Stop,37.60,-122.30,0,
+unused,Nobody Stops Here,37.40,-122.10,0,
+x_stop,Elsewhere Stop,38.00,-122.00,0,

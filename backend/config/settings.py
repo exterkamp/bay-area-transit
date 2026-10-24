@@ -157,6 +157,11 @@ TRANSIT = {
     "BASE_URL": env("TRANSIT_511_BASE_URL", "https://api.511.org"),
     # Operators whose static GTFS feed is downloaded and imported.
     "OPERATORS": env_list("TRANSIT_OPERATORS", "CT,BA"),
+    # Which agencies (and route types) to keep from multi-agency feeds, per
+    # operator. RG is 511's merged regional feed of ~41 agencies. Spec syntax
+    # is in transit.gtfs.importer.FeedFilter: here Muni rail only (type 0:
+    # Metro and the F), and BART, SamTrans and Caltrain whole.
+    "FEED_FILTERS": {"RG": env("TRANSIT_RG_AGENCIES", "SF:0,BA,SM,CT")},
     # Operators whose GTFS-realtime feeds are polled. Each one costs requests.
     "REALTIME_OPERATORS": env_list("TRANSIT_REALTIME_OPERATORS", "CT"),
     # Seconds between polls of each realtime feed, per operator.

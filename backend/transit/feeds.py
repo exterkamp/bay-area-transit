@@ -5,7 +5,7 @@ import logging
 from django.conf import settings
 
 from transit.client import Client511
-from transit.gtfs.importer import ImportResult, import_feed
+from transit.gtfs.importer import FeedFilter, ImportResult, import_feed
 from transit.models import Operator
 
 logger = logging.getLogger(__name__)
@@ -30,5 +30,8 @@ def refresh(codes=None, client: Client511 | None = None) -> list[ImportResult]:
     results = []
     for operator in ensure_operators(codes, client):
         archive = client.static_feed(operator.code)
-        results.append(import_feed(operator, archive, keep=settings.TRANSIT["KEEP_FEEDS"]))
+        only = FeedFilter.parse(settings.TRANSIT["FEED_FILTERS"].get(operator.code))
+        results.append(
+            import_feed(operator, archive, keep=settings.TRANSIT["KEEP_FEEDS"], only=only)
+        )
     return results

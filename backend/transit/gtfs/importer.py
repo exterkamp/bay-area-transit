@@ -6,8 +6,19 @@ references, times running backwards) are errors that abort the import with
 every problem listed by file and line. Cosmetic ones (a malformed route
 color, a file this app doesn't use) are warnings recorded on the feed.
 
-Archives are identified by hash, so re-importing an unchanged download is a
-no-op.
+A FeedFilter imports part of a feed - some agencies, and for each of them
+some route types - which is how the 41-agency regional feed becomes just the
+agencies this app shows. Everything not needed by a kept trip (stops,
+services, shapes) is left out too. A reference to something filtered out is
+skipped; a reference to something that doesn't exist at all is still an
+error.
+
+stop_times.txt is the one big file (millions of rows regionally), so it is
+streamed into a temporary table with COPY and checked with SQL rather than
+held in memory. Every other file is small enough for Python.
+
+Archives are identified by hash (plus the filter), so re-importing an
+unchanged download is a no-op.
 """
 
 import csv
@@ -46,6 +57,8 @@ logger = logging.getLogger(__name__)
 
 BATCH = 5000
 MAX_ERRORS = 50
+# SQL checks report at most this many offending rows each.
+SQL_ERROR_LIMIT = 200
 
 # Files the importer reads. Anything else in the archive is noted and skipped.
 SUPPORTED = {
@@ -94,6 +107,51 @@ class ImportResult:
     created: bool
 
 
+@dataclass(frozen=True)
+class FeedFilter:
+    """Which agencies to import, and optionally which route types of each.
+
+    Written as a spec string: ``"SF:0,BA,SM,CT"`` keeps BART, SamTrans and
+    Caltrain whole, and only Muni's light rail and streetcars (route_type 0).
+    Join several types with ``+``, e.g. ``SF:0+5`` adds the cable cars.
+    """
+
+    agencies: tuple[tuple[str, frozenset[int] | None], ...]
+
+    @classmethod
+    def parse(cls, spec: str | None) -> "FeedFilter | None":
+        if not spec or not spec.strip():
+            return None
+        agencies = {}
+        for part in spec.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            agency, _, types = part.partition(":")
+            try:
+                route_types = frozenset(int(t) for t in types.split("+")) if types else None
+            except ValueError:
+                raise ValueError(f"bad route types in feed filter {part!r}") from None
+            agencies[agency.strip()] = route_types
+        return cls(tuple(sorted(agencies.items(), key=lambda kv: kv[0])))
+
+    @property
+    def spec(self) -> str:
+        return ",".join(
+            agency + (":" + "+".join(str(t) for t in sorted(types)) if types else "")
+            for agency, types in self.agencies
+        )
+
+    def keeps_agency(self, agency_id) -> bool:
+        return any(agency == agency_id for agency, _ in self.agencies)
+
+    def keeps_route(self, agency_id, route_type) -> bool:
+        for agency, types in self.agencies:
+            if agency == agency_id:
+                return types is None or route_type in types
+        return False
+
+
 class Archive:
     """A GTFS archive as a zip (path or bytes) or an extracted directory."""
 
@@ -128,8 +186,13 @@ class Archive:
     def has(self, name):
         return name in self.names
 
-    def rows(self, name, problems, required=()):
-        """Yield (location, row) for each data row, with keys and values stripped."""
+    def rows(self, name, problems, required=(), only=None):
+        """Yield (location, row) for each data row, with keys and values stripped.
+
+        ``only=(column, predicate)`` skips rows whose raw value in ``column``
+        fails the predicate before building a dict for them, which matters
+        when most of a multi-million-row file is being filtered out.
+        """
         if not self.has(name):
             return
         if self._zip is not None:
@@ -147,7 +210,13 @@ class Archive:
                 problems.error(name, f"missing required column(s) {', '.join(missing)}")
                 return
             width = len(header)
+            only_index, only_test = None, None
+            if only is not None and only[0] in header:
+                only_index, only_test = header.index(only[0]), only[1]
             for values in reader:
+                if only_index is not None and only_index < len(values):
+                    if not only_test(values[only_index].strip()):
+                        continue
                 where = f"{name}:{reader.line_num}"
                 if not any(v.strip() for v in values):
                     continue
@@ -238,9 +307,15 @@ def color(row, col, where, problems):
 # --- the import ------------------------------------------------------------------
 
 
-def import_feed(operator: Operator, source, *, activate=True, keep=None) -> ImportResult:
+def import_feed(
+    operator: Operator, source, *, activate=True, keep=None, only: FeedFilter | None = None
+) -> ImportResult:
     archive = Archive(source)
-    existing = Feed.objects.filter(operator=operator, sha256=archive.sha256).first()
+    sha256 = archive.sha256
+    if only is not None:
+        # The same archive filtered differently is a different feed.
+        sha256 = hashlib.sha256(f"{sha256}|{only.spec}".encode()).hexdigest()
+    existing = Feed.objects.filter(operator=operator, sha256=sha256).first()
     if existing:
         logger.info("%s feed %s already imported", operator.code, existing.version or existing.pk)
         if activate and not existing.is_active:
@@ -250,9 +325,11 @@ def import_feed(operator: Operator, source, *, activate=True, keep=None) -> Impo
 
     problems = Problems()
     with transaction.atomic():
-        feed = Feed.objects.create(operator=operator, sha256=archive.sha256)
-        counts = _Importer(feed, archive, problems).run()
+        feed = Feed.objects.create(operator=operator, sha256=sha256)
+        counts = _Importer(feed, archive, problems, only).run()
         feed.stats = {"counts": counts, "warnings": problems.warnings[:200]}
+        if only is not None:
+            feed.stats["filter"] = only.spec
         if len(problems.warnings) > 200:
             feed.stats["warnings_truncated"] = len(problems.warnings)
         feed.save()
@@ -310,14 +387,23 @@ def delete_feed(feed: Feed):
 
 
 class _Importer:
-    def __init__(self, feed, archive, problems):
+    """Reads files in dependency order.
+
+    Filtering runs top-down - agencies, routes, trips - and then the kept
+    trips decide which services, shapes and stops are needed, so the order
+    is: parse what trips refer to, decide the trips, then save only what they
+    use.
+    """
+
+    def __init__(self, feed, archive, problems, only):
         self.feed = feed
         self.archive = archive
         self.problems = problems
+        self.only = only
         self.counts = {}
 
-    def rows(self, name, required=()):
-        return self.archive.rows(name, self.problems, required)
+    def rows(self, name, required=(), only=None):
+        return self.archive.rows(name, self.problems, required, only)
 
     def run(self):
         for name in sorted(set(self.archive.names) - SUPPORTED):
@@ -337,11 +423,13 @@ class _Importer:
 
         self.feed_info()
         self.agencies()
-        self.stops()
         self.routes()
-        self.services()
+        self.parse_services()
+        self.parse_trips()
+        self.stops()
+        self.save_services()
         self.shapes()
-        self.trips()
+        self.save_trips()
         self.stop_times()
         self.fares()
         return self.counts
@@ -357,6 +445,7 @@ class _Importer:
 
     def agencies(self):
         self.agency_by_id = {}
+        self.all_agency_ids = set()
         name = "agency.txt"
         for where, row in self.rows(name, ("agency_name", "agency_url", "agency_timezone")):
             agency = Agency(
@@ -370,14 +459,23 @@ class _Importer:
                 fare_url=row.get("agency_fare_url", ""),
                 email=row.get("agency_email", ""),
             )
-            if agency.agency_id in self.agency_by_id:
+            if agency.agency_id in self.all_agency_ids:
                 self.problems.error(where, f"duplicate agency_id {agency.agency_id!r}")
                 continue
-            self.agency_by_id[agency.agency_id] = agency
-        if not self.agency_by_id:
+            self.all_agency_ids.add(agency.agency_id)
+            if self.only is None or self.only.keeps_agency(agency.agency_id):
+                self.agency_by_id[agency.agency_id] = agency
+        if not self.all_agency_ids:
             self.problems.error(name, "no agencies")
-        if len(self.agency_by_id) > 1 and "" in self.agency_by_id:
+        if len(self.all_agency_ids) > 1 and "" in self.all_agency_ids:
             self.problems.error(name, "agency_id is required when there are several agencies")
+        if self.only is not None:
+            for agency_id, _ in self.only.agencies:
+                if agency_id not in self.all_agency_ids:
+                    self.problems.error(
+                        name,
+                        f"the feed filter names agency {agency_id!r}, which isn't in this feed",
+                    )
         zones = {a.timezone for a in self.agency_by_id.values()}
         if len(zones) > 1:
             self.problems.error(name, f"agencies disagree on timezone: {sorted(zones)}")
@@ -387,9 +485,133 @@ class _Importer:
         operator = self.feed.operator
         operator.timezone = zones.pop()
         if not operator.name:
-            operator.name = next(iter(self.agency_by_id.values())).name
+            agencies = list(self.agency_by_id.values())
+            operator.name = agencies[0].name if len(agencies) == 1 else operator.code
         operator.save()
         self.counts["agencies"] = len(self.agency_by_id)
+
+    def routes(self):
+        self.route_by_id = {}
+        self.all_route_ids = set()
+        only_agency = len(self.all_agency_ids) == 1
+        for where, row in self.rows("routes.txt", ("route_id", "route_type")):
+            route_id = need(row, "route_id", where, self.problems)
+            if route_id in self.all_route_ids:
+                self.problems.error(where, f"duplicate route_id {route_id!r}")
+                continue
+            self.all_route_ids.add(route_id)
+            agency_id = row.get("agency_id", "")
+            if not agency_id and only_agency:
+                agency_id = next(iter(self.all_agency_ids))
+            if agency_id not in self.all_agency_ids:
+                self.problems.error(where, f"agency_id {row.get('agency_id')!r} does not exist")
+            if not (row.get("route_short_name") or row.get("route_long_name")):
+                self.problems.error(where, "route_short_name or route_long_name is required")
+            route_type = integer(row, "route_type", where, self.problems)
+            if route_type is not None and not (
+                route_type <= 7 or route_type in (11, 12) or 100 <= route_type <= 1799
+            ):
+                self.problems.error(where, f"route_type={route_type} is not a GTFS route type")
+            agency = self.agency_by_id.get(agency_id)
+            if agency is None or (
+                self.only is not None and not self.only.keeps_route(agency_id, route_type)
+            ):
+                continue
+            self.route_by_id[route_id] = Route(
+                feed=self.feed,
+                route_id=route_id,
+                agency=agency,
+                short_name=row.get("route_short_name", ""),
+                long_name=row.get("route_long_name", ""),
+                desc=row.get("route_desc", ""),
+                route_type=route_type or 0,
+                url=row.get("route_url", ""),
+                color=color(row, "route_color", where, self.problems),
+                text_color=color(row, "route_text_color", where, self.problems),
+                sort_order=integer(row, "route_sort_order", where, self.problems),
+            )
+        self.problems.check()
+        Route.objects.bulk_create(self.route_by_id.values())
+        self.counts["routes"] = len(self.route_by_id)
+
+    def parse_services(self):
+        self.service_by_id = {}
+        days = Service.WEEKDAYS
+        for where, row in self.rows(
+            "calendar.txt", ("service_id", *days, "start_date", "end_date")
+        ):
+            service_id = need(row, "service_id", where, self.problems)
+            if service_id in self.service_by_id:
+                self.problems.error(where, f"duplicate service_id {service_id!r}")
+                continue
+            flags = {day: enum(row, day, {0, 1}, 0, where, self.problems) == 1 for day in days}
+            start = gtfs_date(row, "start_date", where, self.problems)
+            end = gtfs_date(row, "end_date", where, self.problems)
+            if start is None or end is None:
+                self.problems.error(where, "start_date and end_date are required")
+            elif end < start:
+                self.problems.error(where, f"end_date {end} is before start_date {start}")
+            self.service_by_id[service_id] = Service(
+                feed=self.feed, service_id=service_id, start_date=start, end_date=end, **flags
+            )
+
+        self.exceptions = []
+        seen = set()
+        for where, row in self.rows("calendar_dates.txt", ("service_id", "date", "exception_type")):
+            service_id = need(row, "service_id", where, self.problems)
+            day = gtfs_date(row, "date", where, self.problems)
+            kind = enum(
+                row, "exception_type", set(ExceptionType.values), None, where, self.problems
+            )
+            if kind is None:
+                self.problems.error(where, "exception_type is required")
+            if (service_id, day) in seen:
+                self.problems.error(where, f"duplicate date {day} for service {service_id!r}")
+                continue
+            seen.add((service_id, day))
+            if service_id not in self.service_by_id:
+                # A service defined only by its exceptions.
+                self.service_by_id[service_id] = Service(feed=self.feed, service_id=service_id)
+            self.exceptions.append((service_id, day, kind))
+        self.problems.check()
+
+    def parse_trips(self):
+        """Decide which trips are kept. Their services, shapes and stops follow."""
+        self.trip_by_id = {}
+        self.trip_shape = {}
+        self.all_trip_ids = set()
+        for where, row in self.rows("trips.txt", ("route_id", "service_id", "trip_id")):
+            trip_id = need(row, "trip_id", where, self.problems)
+            if trip_id in self.all_trip_ids:
+                self.problems.error(where, f"duplicate trip_id {trip_id!r}")
+                continue
+            self.all_trip_ids.add(trip_id)
+            route_id = row.get("route_id", "")
+            if route_id not in self.all_route_ids:
+                self.problems.error(where, f"route_id {route_id!r} does not exist")
+            service = self.service_by_id.get(row.get("service_id", ""))
+            if service is None:
+                self.problems.error(where, f"service_id {row.get('service_id')!r} does not exist")
+            route = self.route_by_id.get(route_id)
+            if route is None:
+                continue
+            if row.get("shape_id"):
+                self.trip_shape[trip_id] = (where, row["shape_id"])
+            self.trip_by_id[trip_id] = Trip(
+                feed=self.feed,
+                trip_id=trip_id,
+                route=route,
+                service=service,
+                headsign=row.get("trip_headsign", ""),
+                short_name=row.get("trip_short_name", ""),
+                direction_id=enum(row, "direction_id", {0, 1}, None, where, self.problems),
+                block_id=row.get("block_id", ""),
+                wheelchair_accessible=enum(
+                    row, "wheelchair_accessible", {0, 1, 2}, 0, where, self.problems
+                ),
+                bikes_allowed=enum(row, "bikes_allowed", {0, 1, 2}, 0, where, self.problems),
+            )
+        self.problems.check()
 
     def stops(self):
         rows = {}
@@ -463,6 +685,17 @@ class _Importer:
                     f"which can't contain a {stop.get_location_type_display()}",
                 )
         self.problems.check()
+        self.all_stop_ids = set(rows)
+
+        if self.only is not None:
+            # Only the stops kept trips call at, and the stations they belong to.
+            used = self._stops_used_by_kept_trips()
+            wanted = set()
+            for stop_id in used & self.all_stop_ids:
+                while stop_id and stop_id not in wanted:
+                    wanted.add(stop_id)
+                    stop_id = rows[stop_id][1]
+            rows = {stop_id: rows[stop_id] for stop_id in rows if stop_id in wanted}
 
         # Insert parents before children so every parent_station_id is known
         # at insert time: stations, then what stations contain, then boarding
@@ -480,103 +713,55 @@ class _Importer:
             self.stop_by_id.update((s.stop_id, s) for s in batch)
         self.counts["stops"] = len(self.stop_by_id)
 
-    def routes(self):
-        self.route_by_id = {}
-        only_agency = (
-            next(iter(self.agency_by_id.values())) if len(self.agency_by_id) == 1 else None
-        )
-        for where, row in self.rows("routes.txt", ("route_id", "route_type")):
-            route_id = need(row, "route_id", where, self.problems)
-            if route_id in self.route_by_id:
-                self.problems.error(where, f"duplicate route_id {route_id!r}")
-                continue
-            agency_id = row.get("agency_id", "")
-            agency = self.agency_by_id.get(agency_id) or (only_agency if not agency_id else None)
-            if agency is None:
-                self.problems.error(where, f"agency_id {agency_id!r} does not exist")
-            if not (row.get("route_short_name") or row.get("route_long_name")):
-                self.problems.error(where, "route_short_name or route_long_name is required")
-            route_type = integer(row, "route_type", where, self.problems)
-            if route_type is not None and not (
-                route_type <= 7 or route_type in (11, 12) or 100 <= route_type <= 1799
-            ):
-                self.problems.error(where, f"route_type={route_type} is not a GTFS route type")
-            self.route_by_id[route_id] = Route(
-                feed=self.feed,
-                route_id=route_id,
-                agency=agency,
-                short_name=row.get("route_short_name", ""),
-                long_name=row.get("route_long_name", ""),
-                desc=row.get("route_desc", ""),
-                route_type=route_type or 0,
-                url=row.get("route_url", ""),
-                color=color(row, "route_color", where, self.problems),
-                text_color=color(row, "route_text_color", where, self.problems),
-                sort_order=integer(row, "route_sort_order", where, self.problems),
-            )
-        self.problems.check()
-        Route.objects.bulk_create(self.route_by_id.values())
-        self.counts["routes"] = len(self.route_by_id)
+    def _stops_used_by_kept_trips(self):
+        kept = self.trip_by_id
+        used = set()
+        for _, row in self.rows("stop_times.txt", only=("trip_id", kept.__contains__)):
+            used.add(row.get("stop_id", ""))
+        return used
 
-    def services(self):
-        self.service_by_id = {}
-        days = Service.WEEKDAYS
-        for where, row in self.rows(
-            "calendar.txt", ("service_id", *days, "start_date", "end_date")
-        ):
-            service_id = need(row, "service_id", where, self.problems)
-            if service_id in self.service_by_id:
-                self.problems.error(where, f"duplicate service_id {service_id!r}")
-                continue
-            flags = {day: enum(row, day, {0, 1}, 0, where, self.problems) == 1 for day in days}
-            start = gtfs_date(row, "start_date", where, self.problems)
-            end = gtfs_date(row, "end_date", where, self.problems)
-            if start is None or end is None:
-                self.problems.error(where, "start_date and end_date are required")
-            elif end < start:
-                self.problems.error(where, f"end_date {end} is before start_date {start}")
-            self.service_by_id[service_id] = Service(
-                feed=self.feed, service_id=service_id, start_date=start, end_date=end, **flags
-            )
-
-        exceptions = []
-        seen = set()
-        for where, row in self.rows("calendar_dates.txt", ("service_id", "date", "exception_type")):
-            service_id = need(row, "service_id", where, self.problems)
-            day = gtfs_date(row, "date", where, self.problems)
-            kind = enum(
-                row, "exception_type", set(ExceptionType.values), None, where, self.problems
-            )
-            if kind is None:
-                self.problems.error(where, "exception_type is required")
-            if (service_id, day) in seen:
-                self.problems.error(where, f"duplicate date {day} for service {service_id!r}")
-                continue
-            seen.add((service_id, day))
-            if service_id not in self.service_by_id:
-                # A service defined only by its exceptions.
-                self.service_by_id[service_id] = Service(feed=self.feed, service_id=service_id)
-            exceptions.append((service_id, day, kind))
-        self.problems.check()
-
+    def save_services(self):
+        if self.only is not None:
+            used = {trip.service.service_id for trip in self.trip_by_id.values()}
+            self.service_by_id = {k: v for k, v in self.service_by_id.items() if k in used}
+            self.exceptions = [e for e in self.exceptions if e[0] in used]
         Service.objects.bulk_create(self.service_by_id.values())
+        for trip in self.trip_by_id.values():
+            # Re-point at the saved instance, which now has a primary key.
+            trip.service = self.service_by_id[trip.service.service_id]
         ServiceDate.objects.bulk_create(
             (
                 ServiceDate(
                     feed=self.feed, service=self.service_by_id[sid], date=day, exception_type=kind
                 )
-                for sid, day, kind in exceptions
+                for sid, day, kind in self.exceptions
             ),
             batch_size=BATCH,
         )
         self.counts["services"] = len(self.service_by_id)
-        self.counts["service_dates"] = len(exceptions)
+        self.counts["service_dates"] = len(self.exceptions)
+
+        if self.feed.start_date is None and self.feed.end_date is None:
+            # No feed_info dates (511's regional feed ships an empty one): the
+            # feed is valid for as long as its calendar says something runs.
+            days = [d for s in self.service_by_id.values() for d in (s.start_date, s.end_date)]
+            days += [day for _, day, kind in self.exceptions if kind == ExceptionType.ADDED]
+            days = [d for d in days if d is not None]
+            if days:
+                self.feed.start_date, self.feed.end_date = min(days), max(days)
 
     def shapes(self):
+        wanted = None
+        if self.only is not None:
+            wanted = {shape_id for _, shape_id in self.trip_shape.values()}
+        all_shape_ids = set()
         points = defaultdict(list)
         required = ("shape_id", "shape_pt_lat", "shape_pt_lon", "shape_pt_sequence")
         for where, row in self.rows("shapes.txt", required):
             shape_id = need(row, "shape_id", where, self.problems)
+            all_shape_ids.add(shape_id)
+            if wanted is not None and shape_id not in wanted:
+                continue
             lat = decimal(row, "shape_pt_lat", where, self.problems)
             lon = decimal(row, "shape_pt_lon", where, self.problems)
             seq = integer(row, "shape_pt_sequence", where, self.problems)
@@ -606,167 +791,231 @@ class _Importer:
         Shape.objects.bulk_create(self.shape_by_id.values(), batch_size=500)
         self.counts["shapes"] = len(self.shape_by_id)
 
-    def trips(self):
-        self.trip_by_id = {}
-        for where, row in self.rows("trips.txt", ("route_id", "service_id", "trip_id")):
-            trip_id = need(row, "trip_id", where, self.problems)
-            if trip_id in self.trip_by_id:
-                self.problems.error(where, f"duplicate trip_id {trip_id!r}")
-                continue
-            route = self.route_by_id.get(row.get("route_id", ""))
-            if route is None:
-                self.problems.error(where, f"route_id {row.get('route_id')!r} does not exist")
-            service = self.service_by_id.get(row.get("service_id", ""))
-            if service is None:
-                self.problems.error(where, f"service_id {row.get('service_id')!r} does not exist")
-            shape = None
-            if row.get("shape_id"):
-                shape = self.shape_by_id.get(row["shape_id"])
-                if shape is None:
-                    self.problems.warn(
-                        where, f"shape_id {row['shape_id']!r} does not exist; ignored"
-                    )
-            self.trip_by_id[trip_id] = Trip(
-                feed=self.feed,
-                trip_id=trip_id,
-                route=route,
-                service=service,
-                headsign=row.get("trip_headsign", ""),
-                short_name=row.get("trip_short_name", ""),
-                direction_id=enum(row, "direction_id", {0, 1}, None, where, self.problems),
-                block_id=row.get("block_id", ""),
-                shape=shape,
-                wheelchair_accessible=enum(
-                    row, "wheelchair_accessible", {0, 1, 2}, 0, where, self.problems
-                ),
-                bikes_allowed=enum(row, "bikes_allowed", {0, 1, 2}, 0, where, self.problems),
-            )
-        self.problems.check()
+        for trip_id, (where, shape_id) in self.trip_shape.items():
+            shape = self.shape_by_id.get(shape_id)
+            if shape is None and shape_id not in all_shape_ids:
+                self.problems.warn(where, f"shape_id {shape_id!r} does not exist; ignored")
+            self.trip_by_id[trip_id].shape = shape
+
+    def save_trips(self):
         Trip.objects.bulk_create(self.trip_by_id.values(), batch_size=BATCH)
         self.counts["trips"] = len(self.trip_by_id)
 
     def stop_times(self):
-        by_trip = defaultdict(list)
+        """Stream rows through per-row checks into a temp table, then check trips in SQL."""
         boardable = {LocationType.STOP, LocationType.BOARDING_AREA}
         required = ("trip_id", "stop_id", "stop_sequence")
-        for where, row in self.rows("stop_times.txt", required):
-            trip = self.trip_by_id.get(row.get("trip_id", ""))
-            if trip is None:
-                self.problems.error(where, f"trip_id {row.get('trip_id')!r} does not exist")
-                continue
-            stop = self.stop_by_id.get(row.get("stop_id", ""))
-            if stop is None:
-                self.problems.error(where, f"stop_id {row.get('stop_id')!r} does not exist")
-                continue
-            if stop.location_type not in boardable:
-                self.problems.error(
-                    where,
-                    f"stop_id {stop.stop_id!r} is a {stop.get_location_type_display()}; "
-                    "trips can only call at stops/platforms or boarding areas",
-                )
-            seq = integer(row, "stop_sequence", where, self.problems)
-            if seq is None:
-                self.problems.error(where, "stop_sequence is required")
-                continue
-            arrival = gtfs_time(row, "arrival_time", where, self.problems)
-            departure = gtfs_time(row, "departure_time", where, self.problems)
-            # The spec lets a timed stop give just one of the two.
-            if arrival is None:
-                arrival = departure
-            if departure is None:
-                departure = arrival
-            if arrival is not None and departure < arrival:
-                self.problems.error(where, "departure_time is before arrival_time")
-            timepoint = enum(row, "timepoint", {0, 1}, None, where, self.problems)
-            if timepoint is None:
-                timepoint = 1 if arrival is not None else 0
-            by_trip[trip.trip_id].append(
-                (
-                    seq,
-                    where,
-                    StopTime(
-                        feed=self.feed,
-                        trip=trip,
-                        stop=stop,
-                        stop_sequence=seq,
-                        arrival_secs=arrival,
-                        departure_secs=departure,
-                        stop_headsign=row.get("stop_headsign", ""),
-                        pickup_type=enum(row, "pickup_type", {0, 1, 2, 3}, 0, where, self.problems),
-                        drop_off_type=enum(
-                            row, "drop_off_type", {0, 1, 2, 3}, 0, where, self.problems
-                        ),
-                        shape_dist_traveled=decimal(
-                            row, "shape_dist_traveled", where, self.problems
-                        ),
-                        timepoint=timepoint == 1,
-                    ),
-                )
-            )
+        kept, everywhere = self.trip_by_id, self.all_trip_ids
 
-        for trip_id, calls in by_trip.items():
-            calls.sort(key=lambda c: c[0])
-            for (a, _, _), (b, where, _) in zip(calls, calls[1:], strict=False):
-                if a == b:
-                    self.problems.error(where, f"duplicate stop_sequence {b} in trip {trip_id!r}")
-            if len(calls) < 2:
-                self.problems.warn("stop_times.txt", f"trip {trip_id!r} has fewer than two stops")
-            first, last = calls[0], calls[-1]
-            for _, where, st in (first, last):
-                if st.arrival_secs is None:
-                    self.problems.error(
-                        where, f"first and last stops of trip {trip_id!r} must be timed"
+        def wanted(trip_id):
+            # Filtered-out trips are skipped cheaply; unknown ids still get an error.
+            return trip_id in kept or trip_id not in everywhere
+
+        with connection.cursor() as cursor:
+            cursor.execute("DROP TABLE IF EXISTS stage_stop_time")
+            cursor.execute(
+                """
+                CREATE TEMP TABLE stage_stop_time (
+                    line integer, trip_pk bigint, trip_id text, stop_pk bigint,
+                    seq integer, arr integer, dep integer, headsign text,
+                    pickup smallint, dropoff smallint, dist double precision,
+                    timepoint smallint
+                ) ON COMMIT DROP
+                """
+            )
+            columns = (
+                "line, trip_pk, trip_id, stop_pk, seq, arr, dep, headsign, "
+                "pickup, dropoff, dist, timepoint"
+            )
+            with cursor.cursor.copy(f"COPY stage_stop_time ({columns}) FROM STDIN") as copy:
+                for where, row in self.rows("stop_times.txt", required, only=("trip_id", wanted)):
+                    trip = kept.get(row.get("trip_id", ""))
+                    if trip is None:
+                        self.problems.error(where, f"trip_id {row.get('trip_id')!r} does not exist")
+                        continue
+                    stop = self.stop_by_id.get(row.get("stop_id", ""))
+                    if stop is None:
+                        self.problems.error(where, f"stop_id {row.get('stop_id')!r} does not exist")
+                        continue
+                    if stop.location_type not in boardable:
+                        self.problems.error(
+                            where,
+                            f"stop_id {stop.stop_id!r} is a {stop.get_location_type_display()}; "
+                            "trips can only call at stops/platforms or boarding areas",
+                        )
+                    seq = integer(row, "stop_sequence", where, self.problems)
+                    if seq is None:
+                        self.problems.error(where, "stop_sequence is required")
+                        continue
+                    arrival = gtfs_time(row, "arrival_time", where, self.problems)
+                    departure = gtfs_time(row, "departure_time", where, self.problems)
+                    # The spec lets a timed stop give just one of the two.
+                    if arrival is None:
+                        arrival = departure
+                    if departure is None:
+                        departure = arrival
+                    if arrival is not None and departure < arrival:
+                        self.problems.error(where, "departure_time is before arrival_time")
+                    copy.write_row(
+                        (
+                            int(where.rsplit(":", 1)[1]),
+                            trip.pk,
+                            trip.trip_id,
+                            stop.pk,
+                            seq,
+                            arrival,
+                            departure,
+                            row.get("stop_headsign", ""),
+                            enum(row, "pickup_type", {0, 1, 2, 3}, 0, where, self.problems),
+                            enum(row, "drop_off_type", {0, 1, 2, 3}, 0, where, self.problems),
+                            decimal(row, "shape_dist_traveled", where, self.problems),
+                            enum(row, "timepoint", {0, 1}, None, where, self.problems),
+                        )
                     )
-            previous = None
-            for _, where, st in calls:
-                if st.arrival_secs is None:
-                    continue
-                if previous is not None and st.arrival_secs < previous:
-                    self.problems.error(where, f"trip {trip_id!r} goes back in time here")
-                previous = st.departure_secs
-        untimed = set(self.trip_by_id) - set(by_trip)
-        for trip_id in sorted(untimed)[:20]:
-            self.problems.warn("stop_times.txt", f"trip {trip_id!r} has no stop times")
+                    if len(self.problems.errors) > SQL_ERROR_LIMIT:
+                        break
+            self.problems.check()
+            self._check_trips(cursor)
+            self.counts["stop_times"] = self._insert_stop_times(cursor)
+
+    def _sql_errors(self, cursor, sql, message):
+        cursor.execute(sql + f" LIMIT {SQL_ERROR_LIMIT}")
+        for line, trip_id, *extra in cursor.fetchall():
+            self.problems.error(f"stop_times.txt:{line}", message(trip_id, *extra))
+
+    def _check_trips(self, cursor):
+        """The rules that need a whole trip at once, as set-based SQL."""
+        self._sql_errors(
+            cursor,
+            """
+            SELECT max(line), trip_id, seq FROM stage_stop_time
+            GROUP BY trip_pk, trip_id, seq HAVING count(*) > 1 ORDER BY 1
+            """,
+            lambda trip_id, seq: f"duplicate stop_sequence {seq} in trip {trip_id!r}",
+        )
+        # Ordering is meaningless with duplicate sequence numbers; stop here.
+        self.problems.check()
+        self._sql_errors(
+            cursor,
+            """
+            SELECT line, trip_id FROM (
+                SELECT line, trip_id, arr,
+                       row_number() OVER (PARTITION BY trip_pk ORDER BY seq) AS rn,
+                       count(*) OVER (PARTITION BY trip_pk) AS n
+                FROM stage_stop_time
+            ) t WHERE arr IS NULL AND (rn = 1 OR rn = n) ORDER BY 1
+            """,
+            lambda trip_id: f"first and last stops of trip {trip_id!r} must be timed",
+        )
+        self._sql_errors(
+            cursor,
+            """
+            SELECT line, trip_id FROM (
+                SELECT line, trip_id, arr,
+                       lag(dep) OVER (PARTITION BY trip_pk ORDER BY seq) AS previous
+                FROM stage_stop_time WHERE arr IS NOT NULL
+            ) t WHERE arr < previous ORDER BY 1
+            """,
+            lambda trip_id: f"trip {trip_id!r} goes back in time here",
+        )
         self.problems.check()
 
-        interpolated = sum(_interpolate([st for _, _, st in calls]) for calls in by_trip.values())
-        if interpolated:
-            self.problems.warn(
-                "stop_times.txt", f"interpolated times for {interpolated} untimed stops"
-            )
+        cursor.execute(
+            """
+            SELECT trip_id FROM stage_stop_time GROUP BY trip_pk, trip_id
+            HAVING count(*) < 2 ORDER BY trip_id LIMIT 20
+            """
+        )
+        for (trip_id,) in cursor.fetchall():
+            self.problems.warn("stop_times.txt", f"trip {trip_id!r} has fewer than two stops")
+        cursor.execute(
+            f"""
+            SELECT t.trip_id FROM "{Trip._meta.db_table}" t
+            WHERE t.feed_id = %s
+              AND NOT EXISTS (SELECT 1 FROM stage_stop_time s WHERE s.trip_pk = t.id)
+            ORDER BY t.trip_id LIMIT 20
+            """,
+            [self.feed.pk],
+        )
+        for (trip_id,) in cursor.fetchall():
+            self.problems.warn("stop_times.txt", f"trip {trip_id!r} has no stop times")
 
-        total = 0
-        batch = []
-        for calls in by_trip.values():
-            batch.extend(st for _, _, st in calls)
-            if len(batch) >= BATCH:
-                StopTime.objects.bulk_create(batch)
-                total += len(batch)
-                batch = []
-        StopTime.objects.bulk_create(batch)
-        self.counts["stop_times"] = total + len(batch)
+    def _insert_stop_times(self, cursor) -> int:
+        """Move staged rows into the real table, interpolating untimed stops.
+
+        An untimed stop between two timed ones gets a time spaced by
+        shape_dist_traveled when the stop and both neighbours have it, else
+        evenly by position. Those rows get timepoint=false, so they read as
+        approximate.
+        """
+        cursor.execute("SELECT count(*) FROM stage_stop_time WHERE arr IS NULL")
+        untimed = cursor.fetchone()[0]
+        cursor.execute(
+            f"""
+            WITH ordered AS (
+                SELECT s.*,
+                       row_number() OVER w AS rn,
+                       max(CASE WHEN arr IS NOT NULL THEN seq END) OVER (
+                           w ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS prev_seq,
+                       min(CASE WHEN arr IS NOT NULL THEN seq END) OVER (
+                           w ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS next_seq
+                FROM stage_stop_time s
+                WINDOW w AS (PARTITION BY trip_pk ORDER BY seq)
+            ),
+            filled AS (
+                SELECT o.*,
+                       CASE WHEN o.arr IS NOT NULL THEN NULL
+                       ELSE round(p.dep + (n.arr - p.dep) * greatest(0.0, least(1.0,
+                           CASE WHEN o.dist IS NOT NULL AND p.dist IS NOT NULL
+                                     AND n.dist IS NOT NULL AND n.dist > p.dist
+                                THEN (o.dist - p.dist) / (n.dist - p.dist)
+                                ELSE (o.rn - p.rn)::double precision / (n.rn - p.rn)
+                           END)))::integer
+                       END AS guess
+                FROM ordered o
+                LEFT JOIN ordered p ON p.trip_pk = o.trip_pk AND p.seq = o.prev_seq
+                LEFT JOIN ordered n ON n.trip_pk = o.trip_pk AND n.seq = o.next_seq
+            )
+            INSERT INTO "{StopTime._meta.db_table}" (
+                feed_id, trip_id, stop_id, stop_sequence, arrival_secs, departure_secs,
+                stop_headsign, pickup_type, drop_off_type, shape_dist_traveled, timepoint
+            )
+            SELECT %s, trip_pk, stop_pk, seq, coalesce(arr, guess), coalesce(dep, guess),
+                   headsign, pickup, dropoff, dist,
+                   CASE WHEN arr IS NULL THEN false ELSE coalesce(timepoint, 1) = 1 END
+            FROM filled
+            """,
+            [self.feed.pk],
+        )
+        inserted = cursor.rowcount
+        if untimed:
+            self.problems.warn("stop_times.txt", f"interpolated times for {untimed} untimed stops")
+        return inserted
 
     def fares(self):
         fare_by_id = {}
+        all_fare_ids = set()
         required = ("fare_id", "price", "currency_type", "payment_method", "transfers")
         for where, row in self.rows("fare_attributes.txt", required):
             fare_id = need(row, "fare_id", where, self.problems)
-            if fare_id in fare_by_id:
+            if fare_id in all_fare_ids:
                 self.problems.error(where, f"duplicate fare_id {fare_id!r}")
                 continue
+            all_fare_ids.add(fare_id)
             try:
                 price = Decimal(row.get("price", ""))
             except InvalidOperation:
                 self.problems.error(where, f"price={row.get('price')!r} is not a number")
                 price = Decimal(0)
             agency_id = row.get("agency_id", "")
-            agency = self.agency_by_id.get(agency_id) if agency_id else None
-            if agency_id and agency is None:
+            if agency_id and agency_id not in self.all_agency_ids:
                 self.problems.error(where, f"agency_id {agency_id!r} does not exist")
+            if agency_id and agency_id not in self.agency_by_id:
+                continue
             fare_by_id[fare_id] = FareAttribute(
                 feed=self.feed,
                 fare_id=fare_id,
-                agency=agency,
+                agency=self.agency_by_id.get(agency_id) if agency_id else None,
                 price=price,
                 currency_type=need(row, "currency_type", where, self.problems).upper(),
                 payment_method=enum(row, "payment_method", {0, 1}, 0, where, self.problems),
@@ -776,19 +1025,24 @@ class _Importer:
             )
         rules = []
         for where, row in self.rows("fare_rules.txt", ("fare_id",)):
-            fare = fare_by_id.get(row.get("fare_id", ""))
-            if fare is None:
-                self.problems.error(where, f"fare_id {row.get('fare_id')!r} does not exist")
+            fare_id = row.get("fare_id", "")
+            if fare_id not in all_fare_ids:
+                self.problems.error(where, f"fare_id {fare_id!r} does not exist")
                 continue
             route = None
             if row.get("route_id"):
+                if row["route_id"] not in self.all_route_ids:
+                    self.problems.error(where, f"route_id {row['route_id']!r} does not exist")
+                    continue
                 route = self.route_by_id.get(row["route_id"])
                 if route is None:
-                    self.problems.error(where, f"route_id {row['route_id']!r} does not exist")
+                    continue  # filtered out
+            if fare_id not in fare_by_id:
+                continue  # its agency is filtered out
             rules.append(
                 FareRule(
                     feed=self.feed,
-                    fare=fare,
+                    fare=fare_by_id[fare_id],
                     route=route,
                     origin_id=row.get("origin_id", ""),
                     destination_id=row.get("destination_id", ""),
@@ -800,30 +1054,3 @@ class _Importer:
         FareRule.objects.bulk_create(rules, batch_size=BATCH)
         self.counts["fares"] = len(fare_by_id)
         self.counts["fare_rules"] = len(rules)
-
-
-def _interpolate(calls) -> int:
-    """Fill untimed stops between two timed ones, in place. Returns how many.
-
-    Spaced by shape_dist_traveled when every stop in the gap has it, else
-    evenly. These rows keep timepoint=False, so they read as approximate.
-    """
-    filled = 0
-    timed = [i for i, st in enumerate(calls) if st.arrival_secs is not None]
-    for a, b in zip(timed, timed[1:], strict=False):
-        if b - a < 2:
-            continue
-        start, end = calls[a].departure_secs, calls[b].arrival_secs
-        span = calls[a : b + 1]
-        dists = [st.shape_dist_traveled for st in span]
-        use_dist = None not in dists and dists[-1] > dists[0]
-        for k in range(a + 1, b):
-            if use_dist:
-                fraction = (dists[k - a] - dists[0]) / (dists[-1] - dists[0])
-            else:
-                fraction = (k - a) / (b - a)
-            secs = round(start + (end - start) * fraction)
-            calls[k].arrival_secs = calls[k].departure_secs = secs
-            calls[k].timepoint = False
-            filled += 1
-    return filled

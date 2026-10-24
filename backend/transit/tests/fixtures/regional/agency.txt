@@ -1,0 +1,4 @@
+agency_id,agency_name,agency_url,agency_timezone
+RA,Rail Agency,https://rail.example,America/Los_Angeles
+BU,Bus Agency,https://bus.example,America/Los_Angeles
+XX,Elsewhere Transit,https://x.example,America/Los_Angeles
