@@ -1,5 +1,5 @@
 import { limited } from '../../testing/fixtures';
-import { agencyName, compareAgencies, tripLabel, vehicleNoun } from './agencies';
+import { agencyName, compareAgencies, tripLabel, vehicleKey, vehicleNoun } from './agencies';
 
 describe('agencyName', () => {
   it('uses the name riders say', () => {
@@ -26,5 +26,13 @@ describe('tripLabel', () => {
   it('knows cable cars', () => {
     expect(vehicleNoun({ type: 5 })).toBe('Cable car');
     expect(vehicleNoun(null)).toBe('Train');
+  });
+});
+
+describe('vehicleKey', () => {
+  it('prefers the vehicle id, else the trip', () => {
+    expect(vehicleKey({ vehicle_id: '128', trip_id: '401', source: 'gps' })).toBe('128');
+    expect(vehicleKey({ vehicle_id: null, trip_id: 'SF:1', source: 'gps' })).toBe('trip:SF:1');
+    expect(vehicleKey({ vehicle_id: '3-door', trip_id: 'BA:1', source: 'estimated' })).toBe('trip:BA:1');
   });
 });

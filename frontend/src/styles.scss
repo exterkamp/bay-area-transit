@@ -291,6 +291,13 @@ select.control {
     }
   }
 
+  &.estimated .veh-disc {
+    opacity: 0.8;
+    border-style: dashed;
+    border-color: var(--fg);
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.25);
+  }
+
   .veh-disc {
     width: 28px;
     height: 28px;

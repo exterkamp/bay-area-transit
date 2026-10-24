@@ -6,7 +6,7 @@ import { apiUrls } from '../../api/urls';
 import { ClockService } from '../../core/clock.service';
 import { OperatorService } from '../../core/operator.service';
 import { polled } from '../../core/polled';
-import { tripLabel, vehicleNoun } from '../../lib/agencies';
+import { tripLabel, vehicleKey, vehicleNoun } from '../../lib/agencies';
 import { delayInfo } from '../../lib/delay';
 import { stationName } from '../../lib/format';
 import { formatAge, formatInstant } from '../../lib/time';
@@ -55,6 +55,7 @@ export class TripPage {
 
   protected readonly noun = computed(() => vehicleNoun(this.trip.data()?.route));
   protected readonly tripLabel = tripLabel;
+  protected readonly vehicleKey = vehicleKey;
 
   protected readonly rows = computed<StopRow[]>(() => {
     const t = this.trip.data();
@@ -80,13 +81,15 @@ export class TripPage {
     if (!t || !v) return '';
     const stop = t.stops.find((s) => s.stop_id === v.stop_id);
     // The Caltrain feed sends no stop_id/status, so this is often all we can say.
-    if (!stop || !v.status) return 'Live position';
-    return `${VEHICLE_TEXT[v.status]} ${stationName(stop.name)}`;
+    if (!stop || !v.status) return v.source === 'estimated' ? 'Estimated position' : 'Live position';
+    const line = `${VEHICLE_TEXT[v.status]} ${stationName(stop.name)}`;
+    return v.source === 'estimated' ? `${line} (estimated)` : line;
   });
 
   protected readonly vehicleAge = computed(() => {
     const v = this.trip.data()?.vehicle;
-    return v ? formatAge(v.timestamp, this.clock.now()) : '';
+    // An estimate is computed per request, so its age says nothing.
+    return v && v.source === 'gps' ? formatAge(v.timestamp, this.clock.now()) : '';
   });
 
   protected readonly updated = computed(() => {

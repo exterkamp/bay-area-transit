@@ -46,9 +46,11 @@
       <span class="pulse" aria-hidden="true"></span>
       <div>
         <strong>{{ vehicleLine() }}</strong>
-        <span class="small muted"> · updated {{ vehicleAge() }}</span>
+        @if (vehicleAge()) {
+          <span class="small muted"> · updated {{ vehicleAge() }}</span>
+        }
       </div>
-      <a class="btn ghost small" routerLink="/map" [queryParams]="{ vehicle: v.vehicle_id }">Map</a>
+      <a class="btn ghost small" routerLink="/map" [queryParams]="{ vehicle: vehicleKey(v) }">Map</a>
     </div>
   }
 

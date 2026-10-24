@@ -32,7 +32,10 @@
         <span class="bad">Live trains: {{ e.title.toLowerCase() }}</span>
       } @else if (vehicles.data(); as list) {
         @if (list.length) {
-          <span><strong>{{ list.length }}</strong> {{ list.length === 1 ? 'vehicle' : 'vehicles' }} reporting</span>
+          <span><strong>{{ list.length }}</strong> {{ list.length === 1 ? 'vehicle' : 'vehicles' }}</span>
+          @if (estimatedCount()) {
+            <span class="muted"> ({{ estimatedCount() }} estimated)</span>
+          }
           <span class="muted"> · updated {{ vehiclesUpdated() }} · every 30 s</span>
         } @else {
           <span class="muted">{{ noVehiclesText() }}</span>
@@ -54,7 +57,10 @@
       </ul>
     }
     @if (op.multiAgency()) {
-      <p class="small muted">Zoom in to see street stops. BART doesn't publish train positions.</p>
+      <p class="small muted">
+        Zoom in to see street stops. Faded, dashed markers are estimated from live predictions: BART
+        publishes no GPS.
+      </p>
     }
   </div>
 }

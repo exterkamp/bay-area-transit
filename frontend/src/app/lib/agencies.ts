@@ -1,6 +1,6 @@
 // Agency display names and vehicle words. Framework-free.
 
-import type { AgencyId, RouteRef } from '../api/models';
+import type { AgencyId, RouteRef, Vehicle } from '../api/models';
 
 /** What riders call each agency of 511's regional feed. */
 const SHORT_NAMES: Record<AgencyId, string> = {
@@ -48,4 +48,13 @@ export function vehicleNoun(route: Pick<RouteRef, 'type'> | null | undefined): s
 export function tripLabel(t: { trip_id: string; short_name: string; route: RouteRef | null }): string {
   const noun = vehicleNoun(t.route);
   return t.short_name && t.short_name !== t.trip_id ? `${noun} ${t.short_name}` : noun;
+}
+
+/**
+ * A stable id for a vehicle marker: the vehicle's own id, else its trip's.
+ * Estimates always go by trip: they're one per trip, and the ids feeds put in
+ * trip updates aren't always unique.
+ */
+export function vehicleKey(v: Pick<Vehicle, 'vehicle_id' | 'trip_id' | 'source'>): string {
+  return v.source === 'gps' && v.vehicle_id ? v.vehicle_id : `trip:${v.trip_id}`;
 }

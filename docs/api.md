@@ -275,10 +275,21 @@ that day. `stops[].station_id` is the place id of each stop.
 
 ## `GET /api/v1/operators/{code}/vehicles?agency=`
 
-Latest vehicle positions, filtered by the trip's agency when `agency` is
-given. BART publishes none. Empty list when realtime is stale (>10 minutes);
-use `/operators` `realtime.vehicle_positions_at` to tell stale from "no
-trains running". `stop_id` is a platform id, as in `trips[].stops[].stop_id`.
+Where vehicles are now, filtered by the trip's agency when `agency` is
+given. Two kinds, told apart by `source`:
+
+- `"gps"`: a position the agency reported (GTFS-realtime vehicle
+  positions). Muni, SamTrans and Caltrain send these.
+- `"estimated"`: computed from the trip's live predictions for a trip
+  with no GPS report: between its last departure and next arrival,
+  placed along the route's shape in proportion to the time elapsed, or
+  at the platform while it's due to be standing there. BART sends no
+  positions, so all BART vehicles are estimated.
+
+Empty list when realtime is stale (>10 minutes): GPS needs fresh vehicle
+positions, estimates need fresh trip updates. Use `/operators`
+`realtime.*_at` to tell stale from "nothing running". `stop_id` is a
+platform id, as in `trips[].stops[].stop_id`.
 
 ```json
 [
@@ -288,16 +299,23 @@ trains running". `stop_id` is a platform id, as in `trips[].stops[].stop_id`.
     "headsign": "San Francisco",
     "lat": 37.44, "lon": -122.16, "bearing": null,
     "status": "in_transit_to", "stop_id": "70171",
-    "timestamp": "2026-10-24T08:14:00-07:00"
+    "timestamp": "2026-10-24T08:14:00-07:00",
+    "source": "gps"
   }
 ]
 ```
 
-`status`: `"incoming_at" | "stopped_at" | "in_transit_to" | null`.
-`bearing` (degrees) and `stop_id` are `null` when the feed omits them;
-511's Caltrain feed currently sends neither, nor `status`.
-`route`/`short_name`/`headsign` are `null` if the trip is not in the
-static feed.
+- `vehicle_id` is `null` when the feed doesn't name the vehicle (some
+  estimated ones); key markers by `vehicle_id`, else `trip_id`.
+- `status`: `"incoming_at" | "stopped_at" | "in_transit_to" | null`.
+  Estimates are always `stopped_at` or `in_transit_to`.
+- `bearing` (degrees) and `stop_id` are `null` when the feed omits them;
+  511's Caltrain GPS sends neither, nor `status`. Estimates take their
+  bearing from the shape when the trip has one.
+- `timestamp` is when the GPS fix was taken, or for an estimate, the
+  moment it was computed (the request).
+- `route`/`short_name`/`headsign` are `null` if the trip is not in the
+  static feed (GPS only: estimates always have a static trip).
 
 ## `GET /api/v1/operators/{code}/alerts`
 

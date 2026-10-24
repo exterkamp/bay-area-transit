@@ -6,6 +6,7 @@ like docs/api.md, so views stay thin and tests can call these directly.
 
 import math
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -13,7 +14,8 @@ from zoneinfo import ZoneInfo
 from django.contrib.gis.geos import Point
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import connection
-from django.db.models import Max, Q
+from django.db.models import Max, Min, Q
+from django.utils import timezone
 
 from transit.gtfs.calendar import active_service_ids
 from transit.gtfs.times import secs_since_service_start, to_datetime
@@ -26,14 +28,19 @@ from transit.models import (
     Operator,
     PickupDropOff,
     Place,
+    RealtimeKind,
     Route,
+    Shape,
     Stop,
     StopTime,
     Trip,
+    TripRelationship,
+    TripUpdate,
     VehiclePosition,
     VehicleStatus,
 )
-from transit.realtime.overlay import Call, Estimate, RealtimeIndex, TripRealtime
+from transit.realtime import estimate
+from transit.realtime.overlay import Call, Estimate, RealtimeIndex, TripRealtime, is_fresh
 
 # Look this far before ``at`` in the schedule, so a late train scheduled to
 # have left already still shows up if realtime says it hasn't.
@@ -506,10 +513,10 @@ def _time_dict(ctx, scheduled_secs, service_date, estimated, delay):
     }
 
 
-def _endpoint(ctx, st, service_date, estimate: Estimate, which):
+def _endpoint(ctx, st, service_date, prediction: Estimate, which):
     secs = st.departure_secs if which == "departure" else st.arrival_secs
-    est = estimate.departure if which == "departure" else estimate.arrival
-    delay = estimate.departure_delay if which == "departure" else estimate.arrival_delay
+    est = prediction.departure if which == "departure" else prediction.arrival
+    delay = prediction.departure_delay if which == "departure" else prediction.arrival_delay
     return {
         "stop_id": st.stop.stop_id,
         "platform": st.stop.name,
@@ -663,7 +670,7 @@ def departures(ctx: Context, station_id, at: datetime, limit=None) -> dict:
     }
 
 
-def trip_detail(ctx: Context, trip_id, service_date: date) -> dict:
+def trip_detail(ctx: Context, trip_id, service_date: date, now=None) -> dict:
     trip = (
         Trip.objects.filter(feed=ctx.feed, trip_id=trip_id).select_related("route__agency").first()
     )
@@ -695,7 +702,7 @@ def trip_detail(ctx: Context, trip_id, service_date: date) -> dict:
                 "skipped": est.skipped,
             }
         )
-    vehicle = next(iter(vehicles(ctx, trip_ids=[trip.trip_id])), None)
+    vehicle = next(iter(vehicles(ctx, trip_ids=[trip.trip_id], now=now)), None)
     return {
         **_trip_summary(trip, service_date, rt.status),
         "bikes_allowed": trip.bikes_allowed == Accessibility.ACCESSIBLE,
@@ -736,12 +743,20 @@ _VEHICLE_STATUS = {
 }
 
 
-def vehicles(ctx: Context, trip_ids=None, agency=None) -> list[dict]:
-    from transit.models import RealtimeKind
-    from transit.realtime.overlay import is_fresh
+def vehicles(ctx: Context, trip_ids=None, agency=None, now=None) -> list[dict]:
+    """GPS positions, plus estimated ones for live trips that have no GPS."""
+    now = now or timezone.now()
+    gps = []
+    if is_fresh(ctx.operator, RealtimeKind.VEHICLE_POSITIONS):
+        gps = _gps_vehicles(ctx, trip_ids, agency)
+    estimated = []
+    if is_fresh(ctx.operator, RealtimeKind.TRIP_UPDATES):
+        covered = {v["trip_id"] for v in gps if v["trip_id"]}
+        estimated = _estimated_vehicles(ctx, trip_ids, agency, now, covered)
+    return gps + estimated
 
-    if not is_fresh(ctx.operator, RealtimeKind.VEHICLE_POSITIONS):
-        return []
+
+def _gps_vehicles(ctx, trip_ids, agency) -> list[dict]:
     positions = VehiclePosition.objects.filter(operator=ctx.operator)
     if trip_ids is not None:
         positions = positions.filter(trip_id__in=trip_ids)
@@ -763,7 +778,7 @@ def vehicles(ctx: Context, trip_ids=None, agency=None) -> list[dict]:
         trip = trips.get(p.trip_id)
         result.append(
             {
-                "vehicle_id": p.vehicle_id or p.label,
+                "vehicle_id": p.vehicle_id or p.label or None,
                 "trip_id": p.trip_id or None,
                 "short_name": (trip.short_name or trip.trip_id) if trip else None,
                 "route": route_dict(trip.route) if trip else None,
@@ -774,6 +789,151 @@ def vehicles(ctx: Context, trip_ids=None, agency=None) -> list[dict]:
                 "status": _VEHICLE_STATUS.get(p.current_status),
                 "stop_id": p.stop_id or None,
                 "timestamp": iso(p.timestamp, ctx.tz),
+                "source": "gps",
             }
         )
     return result
+
+
+# How far off schedule a trip can run and still be placed from its predictions.
+EARLY_SLACK = timedelta(minutes=10)
+LATE_SLACK = timedelta(hours=1)
+
+
+def _estimated_vehicles(ctx, trip_ids, agency, now, covered) -> list[dict]:
+    updates = TripUpdate.objects.filter(operator=ctx.operator).exclude(
+        schedule_relationship__in=[TripRelationship.CANCELED, TripRelationship.DELETED]
+    )
+    if trip_ids is not None:
+        updates = updates.filter(trip_id__in=trip_ids)
+    vehicle_of = {
+        trip_id: vehicle_id
+        for trip_id, vehicle_id in updates.values_list("trip_id", "vehicle_id")
+        if trip_id not in covered
+    }
+    # BART fills vehicle.id with a car type ("3-door"), the same for many
+    # trains. An id that isn't unique identifies nothing.
+    shared = {v for v, n in Counter(vehicle_of.values()).items() if n > 1}
+    vehicle_of = {t: ("" if v in shared else v) for t, v in vehicle_of.items()}
+    trips = Trip.objects.filter(feed=ctx.feed, trip_id__in=vehicle_of).select_related(
+        "route__agency"
+    )
+    if agency:
+        trips = trips.filter(route__agency__agency_id__in=agency_ids(agency))
+    trips = list(trips)
+    if not trips:
+        return []
+
+    # Predictions often cover trips that haven't started yet. Skip any whose
+    # schedule can't be running now, before loading their stops.
+    span = {
+        trip_pk: (first, last)
+        for trip_pk, first, last in StopTime.objects.filter(trip__in=trips)
+        .values("trip_id")
+        .annotate(first=Min("departure_secs"), last=Max("arrival_secs"))
+        .values_list("trip_id", "first", "last")
+    }
+    # A trip running now belongs to today's service day or, after midnight,
+    # yesterday's. Today first: it's the likelier one.
+    today = now.astimezone(ctx.tz).date()
+    legs = []
+    for service_date in (today, today - timedelta(days=1)):
+        running = active_service_ids(ctx.feed, service_date)
+        secs = secs_since_service_start(now, service_date, ctx.tz)
+        for t in trips:
+            first, last = span.get(t.pk, (None, None))
+            if t.service_id not in running or first is None or last is None:
+                continue
+            if first - EARLY_SLACK.total_seconds() <= secs <= last + LATE_SLACK.total_seconds():
+                legs.append(Leg(t.pk, service_date, 0, 0, 0))
+    if not legs:
+        return []
+    data = _load(ctx, legs)
+    stop_points = dict(
+        Stop.objects.filter(
+            pk__in={c.stop.pk for calls in data.calls.values() for c in calls}
+        ).values_list("pk", "point")
+    )
+    shapes = Shape.objects.in_bulk({t.shape_id for t in trips if t.shape_id})
+
+    result = []
+    placed = set()
+    for leg in legs:
+        rt = data.realtime[(leg.trip_pk, leg.service_date)]
+        if rt.status != "live" or leg.trip_pk in placed:
+            continue
+        trip = data.trips[leg.trip_pk]
+        stops = _timed_stops(ctx, data.calls[leg.trip_pk], leg.service_date, rt, stop_points)
+        shape = shapes.get(trip.shape_id)
+        where = estimate.place(stops, now, shape.geometry if shape else None)
+        if where is None:
+            continue
+        placed.add(leg.trip_pk)
+        result.append(
+            {
+                "vehicle_id": vehicle_of.get(trip.trip_id) or None,
+                "trip_id": trip.trip_id,
+                "short_name": trip.short_name or trip.trip_id,
+                "route": route_dict(trip.route),
+                "headsign": trip.headsign,
+                "lat": where.point.y,
+                "lon": where.point.x,
+                "bearing": where.bearing,
+                "status": _VEHICLE_STATUS[where.status],
+                "stop_id": where.stop_id,
+                "timestamp": iso(now, ctx.tz),
+                "source": "estimated",
+            }
+        )
+    result.sort(key=lambda v: v["trip_id"])
+    return result
+
+
+def _timed_stops(ctx, calls, service_date, rt, stop_points) -> list[estimate.TimedStop]:
+    """Each call's best known times: predicted, else scheduled.
+
+    Stops before the first prediction are behind the vehicle and get no
+    estimate from the overlay; they take the first prediction's delay, so
+    the segment the vehicle is on isn't stretched back to an on-time
+    departure it didn't make.
+    """
+    delay = next(
+        (
+            e.departure_delay if e.departure_delay is not None else e.arrival_delay
+            for e in (rt.at(c.stop_sequence) for c in calls)
+            if e.departure_delay is not None or e.arrival_delay is not None
+        ),
+        0,
+    )
+    shift = timedelta(seconds=delay)
+    stops = []
+    predicted = False
+    for c in calls:
+        est = rt.at(c.stop_sequence)
+        point = stop_points.get(c.stop.pk)
+        if est.skipped or point is None:
+            continue
+        predicted = predicted or est.arrival is not None or est.departure is not None
+        arrival = (
+            to_datetime(service_date, c.arrival_secs, ctx.tz)
+            if c.arrival_secs is not None
+            else None
+        )
+        departure = (
+            to_datetime(service_date, c.departure_secs, ctx.tz)
+            if c.departure_secs is not None
+            else None
+        )
+        if not predicted:
+            arrival = arrival and arrival + shift
+            departure = departure and departure + shift
+        stops.append(
+            estimate.TimedStop(
+                c.stop_sequence,
+                c.stop.stop_id,
+                point,
+                est.arrival or arrival,
+                est.departure or departure,
+            )
+        )
+    return stops

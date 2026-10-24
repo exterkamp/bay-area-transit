@@ -219,8 +219,12 @@ export interface DeparturesResponse {
 
 export type VehicleStatus = 'incoming_at' | 'stopped_at' | 'in_transit_to' | null;
 
+/** gps = reported by the agency; estimated = placed from the trip's live predictions. */
+export type VehicleSource = 'gps' | 'estimated';
+
 export interface Vehicle {
-  vehicle_id: string;
+  /** null when the feed doesn't name the vehicle; key by vehicleKey() instead. */
+  vehicle_id: string | null;
   trip_id: string;
   /** null if the trip is not in the static feed. */
   short_name: string | null;
@@ -234,7 +238,9 @@ export interface Vehicle {
   status: VehicleStatus;
   /** Platform id, as in trips[].stops[].stop_id; null when the feed omits it. */
   stop_id: string | null;
+  /** GPS fix time, or for an estimate, when it was computed. */
   timestamp: IsoDateTime;
+  source: VehicleSource;
 }
 
 // --- /trips/{id} ------------------------------------------------------------

@@ -22,7 +22,7 @@ import { apiUrls } from '../../api/urls';
 import { ClockService } from '../../core/clock.service';
 import { OperatorService } from '../../core/operator.service';
 import { polled } from '../../core/polled';
-import { tripLabel } from '../../lib/agencies';
+import { tripLabel, vehicleKey } from '../../lib/agencies';
 import { escapeHtml, safeColor, stationName } from '../../lib/format';
 import { legendEntries } from '../../lib/legend';
 import { STORAGE_KEYS, readJson, writeJson } from '../../lib/storage';
@@ -62,7 +62,7 @@ export class MapPage {
   private readonly clock = inject(ClockService);
   private readonly http = inject(HttpClient);
 
-  /** ?vehicle=<vehicle_id> centers on that train once it shows up. */
+  /** ?vehicle=<vehicleKey> centers on that vehicle once it shows up. */
   readonly vehicle = input<string>();
 
   private readonly mapEl = viewChild.required<ElementRef<HTMLDivElement>>('map');
@@ -110,6 +110,10 @@ export class MapPage {
     }
     return 'No trains are running right now.';
   });
+
+  protected readonly estimatedCount = computed(
+    () => (this.vehicles.data() ?? []).filter((v) => v.source === 'estimated').length,
+  );
 
   protected readonly vehiclesUpdated = computed(() => {
     const t = this.vehicles.updatedAt();
@@ -304,17 +308,18 @@ export class MapPage {
     if (!m || !list) return;
     const seen = new Set<string>();
     for (const v of list) {
-      seen.add(v.vehicle_id);
+      const key = vehicleKey(v);
+      seen.add(key);
       const icon = this.vehicleIcon(v);
-      let marker = this.vehicleMarkers.get(v.vehicle_id);
+      let marker = this.vehicleMarkers.get(key);
       if (marker) {
         marker.setLatLng([v.lat, v.lon]);
         marker.setIcon(icon);
       } else {
         marker = L.marker([v.lat, v.lon], { icon, keyboard: true, zIndexOffset: 1000 })
-          .bindPopup(() => this.vehiclePopup(v.vehicle_id))
+          .bindPopup(() => this.vehiclePopup(key))
           .addTo(this.vehicleLayer);
-        this.vehicleMarkers.set(v.vehicle_id, marker);
+        this.vehicleMarkers.set(key, marker);
       }
       marker.options.title = this.vehicleTitle(v);
     }
@@ -328,7 +333,7 @@ export class MapPage {
 
   private focusVehicle(m: L.Map | null, list: Vehicle[] | undefined, id: string | undefined): void {
     if (!m || !list || !id || this.focusedVehicle === id) return;
-    const v = list.find((x) => x.vehicle_id === id);
+    const v = list.find((x) => vehicleKey(x) === id);
     const marker = this.vehicleMarkers.get(id);
     if (!v || !marker) return;
     this.focusedVehicle = id;
@@ -348,7 +353,7 @@ export class MapPage {
         : `<div class="veh-arrow" style="transform:rotate(${Math.round(v.bearing)}deg)"></div>`;
     return L.divIcon({
       className: 'veh-icon',
-      html: `<div class="veh" style="--c:${bg};--t:${fg}">${arrow}<div class="veh-disc">${label}</div></div>`,
+      html: `<div class="veh${v.source === 'estimated' ? ' estimated' : ''}" style="--c:${bg};--t:${fg}">${arrow}<div class="veh-disc">${label}</div></div>`,
       iconSize: [34, 34],
       iconAnchor: [17, 17],
       popupAnchor: [0, -16],
@@ -357,11 +362,12 @@ export class MapPage {
 
   /** Built at open time, so it reflects the latest poll. */
   private vehiclePopup(id: string): HTMLElement {
-    const v = this.vehicles.data()?.find((x) => x.vehicle_id === id);
+    const v = this.vehicles.data()?.find((x) => vehicleKey(x) === id);
     if (!v) return this.popup('Vehicle', 'No longer reporting', '', '');
     const title = this.vehicleTitle(v);
     const status = v.status ? VEHICLE_STATUS[v.status] ?? '' : '';
-    const sub = [v.route?.short_name, status, formatAge(v.timestamp, this.clock.now())].filter(Boolean).join(' · ');
+    const when = v.source === 'estimated' ? 'Estimated from predictions' : formatAge(v.timestamp, this.clock.now());
+    const sub = [v.route?.short_name, status, when].filter(Boolean).join(' · ');
     return this.popup(title, sub, 'Trip details →', `/trips/${encodeURIComponent(v.trip_id)}`);
   }
 
