@@ -6,6 +6,7 @@ import { apiUrls } from '../../api/urls';
 import { ClockService } from '../../core/clock.service';
 import { OperatorService } from '../../core/operator.service';
 import { polled } from '../../core/polled';
+import { tripLabel, vehicleNoun } from '../../lib/agencies';
 import { delayInfo } from '../../lib/delay';
 import { stationName } from '../../lib/format';
 import { formatAge, formatInstant } from '../../lib/time';
@@ -49,8 +50,11 @@ export class TripPage {
 
   protected readonly trip = polled<TripDetail>(
     () => (this.op.noFeed() ? undefined : apiUrls.trip(this.op.code(), this.tripId(), this.date())),
-    { intervalMs: 30_000, what: 'that train' },
+    { intervalMs: 30_000, what: 'that trip' },
   );
+
+  protected readonly noun = computed(() => vehicleNoun(this.trip.data()?.route));
+  protected readonly tripLabel = tripLabel;
 
   protected readonly rows = computed<StopRow[]>(() => {
     const t = this.trip.data();
@@ -93,7 +97,7 @@ export class TripPage {
   constructor() {
     effect(() => {
       const t = this.trip.data();
-      if (t) this.title.setTitle(`Train ${t.short_name || t.trip_id} to ${t.headsign} · Bay Area Transit`);
+      if (t) this.title.setTitle(`${tripLabel(t)} to ${stationName(t.headsign)} · Bay Area Transit`);
     });
   }
 }

@@ -4,8 +4,13 @@
     <a class="brand" routerLink="/">
       <span class="logo" aria-hidden="true"></span>
       <span class="brand-text">
-        <span class="brand-op">{{ op.name() }}</span>
-        <span class="brand-sub">Bay Area Transit</span>
+        @if (op.multiAgency()) {
+          <span class="brand-op">Bay Area Transit</span>
+          <span class="brand-sub">{{ op.name() }}</span>
+        } @else {
+          <span class="brand-op">{{ op.name() }}</span>
+          <span class="brand-sub">Bay Area Transit</span>
+        }
       </span>
     </a>
     <app-realtime-indicator />
@@ -27,16 +32,18 @@
 <footer class="wrap footer">
   @if (op.feed(); as f) {
     <p>
-      {{ op.name() }} timetable valid {{ f.start_date | day }} – {{ f.end_date | day }}
-      <span class="sep">·</span> feed {{ f.version }}
+      Timetable valid {{ f.start_date | day }} – {{ f.end_date | day }}
+      @if (f.version) {
+        <span class="sep">·</span> feed {{ f.version }}
+      }
     </p>
     @if (feedOutOfRange()) {
       <p class="warn">Today is outside this timetable's dates — times may be wrong.</p>
     }
   } @else if (op.noFeed()) {
-    <p>No {{ op.name() }} timetable has been imported yet.</p>
+    <p>No timetable has been imported yet.</p>
   } @else if (op.operators.error(); as e) {
     <p>{{ e.title }}</p>
   }
-  <p class="credits">Map data © OpenStreetMap contributors. Not affiliated with {{ op.name() }}.</p>
+  <p class="credits">Map data © OpenStreetMap contributors. Transit data from 511.org. Not affiliated with {{ op.name() }}.</p>
 </footer>

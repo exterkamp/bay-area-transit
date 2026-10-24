@@ -41,8 +41,10 @@ describe('storage', () => {
   });
 
   it('keys trips per operator', () => {
-    expect(STORAGE_KEYS.trip('CT')).toBe('bat.trip.CT');
+    expect(STORAGE_KEYS.trip('RG')).toBe('bat.trip2.RG');
     expect(STORAGE_KEYS.trip('BA')).not.toBe(STORAGE_KEYS.trip('CT'));
+    // The old app's key is read for migration, never written: a new key, not a new shape in the old one.
+    expect(STORAGE_KEYS.trip('CT')).not.toBe(STORAGE_KEYS.legacyTrip);
   });
 
   it('works with the default store when none exists (node)', () => {

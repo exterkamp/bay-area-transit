@@ -4,8 +4,9 @@ import type {
   Alert,
   Departure,
   Operator,
+  Place,
   PlanResponse,
-  Station,
+  RouteRef,
 } from '../app/api/models';
 
 export const operatorCT: Operator = {
@@ -23,30 +24,33 @@ export const operatorCT: Operator = {
     vehicle_positions_at: '2026-10-24T08:14:05-07:00',
     alerts_at: '2026-10-24T08:10:00-07:00',
   },
+  agencies: ['CT'],
 };
 
-function station(id: string, name: string, lat: number, platforms: string[]): Station {
-  return {
-    id,
-    name,
-    lat,
-    lon: -122.2,
-    zone: '1',
-    wheelchair_boarding: 'accessible',
-    platforms: platforms.map((p) => ({ id: p, name: `${name} Caltrain Station`, platform_code: '' })),
-  };
-}
+export const limited: RouteRef = {
+  id: 'Limited',
+  short_name: 'Limited',
+  color: '#99d7dc',
+  text_color: '#000000',
+  agency: 'CT',
+  type: 2,
+};
 
-/** North to south, as the API orders them. */
-export const stations: Station[] = [
-  station('san_francisco', 'San Francisco', 37.776, ['70011', '70012']),
-  station('22nd_street', '22nd Street', 37.757, ['70021', '70022']),
-  station('millbrae', 'Millbrae', 37.6, ['70061', '70062']),
-  station('palo_alto', 'Palo Alto', 37.443, ['70171', '70172']),
-  station('san_jose_diridon', 'San Jose Diridon', 37.33, ['70261', '70262']),
-  // Off the longest trip, so alphabetical at the end:
-  station('college_park', 'College Park', 37.34, ['70251']),
-];
+export const powell: Place = {
+  id: 'mtc:powell',
+  name: 'Powell',
+  kind: 'station',
+  lat: 37.78445,
+  lon: -122.40792,
+  zone: '',
+  wheelchair_boarding: 'unknown',
+  agencies: ['BA', 'SF'],
+  routes: [
+    { id: 'BA:Red-N', short_name: 'Red-N', color: '#ed1c24', text_color: '#ffffff', agency: 'BA', type: 1 },
+    { id: 'SF:N', short_name: 'N', color: '#005b95', text_color: '#ffffff', agency: 'SF', type: 0 },
+  ],
+  platforms: [{ id: '16995', name: 'Powell Station Outbound', platform_code: '' }],
+};
 
 export const plan: PlanResponse = {
   from: { id: 'palo_alto', name: 'Palo Alto' },
@@ -60,7 +64,7 @@ export const plan: PlanResponse = {
       short_name: '401',
       headsign: 'San Francisco',
       direction: 0,
-      route: { id: 'Limited', short_name: 'Limited', color: '#99d7dc', text_color: '#000000' },
+      route: limited,
       status: 'scheduled',
       depart: {
         stop_id: '70171',
@@ -82,14 +86,20 @@ export const plan: PlanResponse = {
   ],
 };
 
-function dep(tripId: string, direction: number, dest: [string, string], headsign: string): Departure {
+export function dep(
+  tripId: string,
+  direction: number,
+  dest: [string, string],
+  headsign: string,
+  route: Partial<RouteRef> = {},
+): Departure {
   return {
     trip_id: tripId,
     service_date: '2026-10-24',
     short_name: tripId,
     headsign,
     direction,
-    route: { id: 'Local', short_name: 'Local', color: '#eeeeee', text_color: '#000000' },
+    route: { id: 'Local', short_name: 'Local', color: '#eeeeee', text_color: '#000000', agency: 'CT', type: 2, ...route },
     status: 'live',
     depart: {
       stop_id: '70171',

@@ -6,10 +6,12 @@
 export type IsoDateTime = string;
 /** YYYY-MM-DD. */
 export type IsoDate = string;
-/** 511 operator code: CT (Caltrain), BA (BART). */
+/** 511 operator code, naming a data source: RG (the regional feed), CT, BA. */
 export type OperatorCode = string;
+/** GTFS agency_id within a feed: in RG, SF (Muni), BA, SM (SamTrans), CT. */
+export type AgencyId = string;
 
-export type ApiErrorCode = 'no_active_feed' | 'not_found' | 'bad_request';
+export type ApiErrorCode = 'no_active_feed' | 'not_found' | 'bad_request' | 'filter_required';
 
 /** Body of every 400/404. */
 export interface ApiErrorBody {
@@ -44,9 +46,21 @@ export interface Operator {
   /** null until a feed has been imported. */
   feed: FeedInfo | null;
   realtime: RealtimeInfo;
+  agencies: AgencyId[];
 }
 
-// --- /stations --------------------------------------------------------------
+// --- /agencies --------------------------------------------------------------
+
+export interface Agency {
+  id: AgencyId;
+  name: string;
+  url: string;
+  timezone: string;
+  /** GTFS route types: 0 light rail, 1 subway, 2 rail, 3 bus, 5 cable car. */
+  route_types: number[];
+}
+
+// --- places (/places, /places/{id}, /stations) ------------------------------
 
 export type WheelchairBoarding = 'unknown' | 'accessible' | 'inaccessible';
 
@@ -56,14 +70,29 @@ export interface Platform {
   platform_code: string;
 }
 
-export interface Station {
+/**
+ * What a rider picks: a station with its platforms, or same-named stops on
+ * both sides of a street. Any member stop id resolves to the place.
+ */
+export interface Place {
   id: string;
   name: string;
+  kind: 'station' | 'stop';
   lat: number;
   lon: number;
   zone: string;
   wheelchair_boarding: WheelchairBoarding;
+  agencies: AgencyId[];
+  /** By agency, then name. */
+  routes: RouteRef[];
+  /** Where you board: a station's platforms, or the stops in a group. */
   platforms: Platform[];
+  /** Only from a `near` search. */
+  distance_m?: number;
+}
+
+export interface PlaceSearch {
+  places: Place[];
 }
 
 // --- /routes ----------------------------------------------------------------
@@ -77,14 +106,18 @@ export interface Route {
   /** Always #rrggbb. */
   color: string;
   text_color: string;
+  agency: AgencyId;
 }
 
-/** The compact route embedded in trips, departures and vehicles. */
+/** The compact route embedded in places, trips, departures and vehicles. */
 export interface RouteRef {
   id: string;
+  /** Falls back to the long name. */
   short_name: string;
   color: string;
   text_color: string;
+  agency: AgencyId;
+  type: number;
 }
 
 // --- /shapes (GeoJSON) ------------------------------------------------------
@@ -92,6 +125,7 @@ export interface RouteRef {
 export interface ShapeProperties {
   route_id: string;
   color: string;
+  agency: AgencyId;
 }
 
 export interface ShapeFeature {

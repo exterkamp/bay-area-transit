@@ -1,3 +1,4 @@
+import { HttpClient } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -8,23 +9,39 @@ import {
   effect,
   inject,
   input,
+  WritableSignal,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import * as L from 'leaflet';
-import type { Route, ShapeCollection, Station, Vehicle } from '../../api/models';
+import { firstValueFrom } from 'rxjs';
+import type { AgencyId, Place, Route, ShapeCollection, Vehicle } from '../../api/models';
 import { apiUrls } from '../../api/urls';
 import { ClockService } from '../../core/clock.service';
 import { OperatorService } from '../../core/operator.service';
 import { polled } from '../../core/polled';
+import { tripLabel } from '../../lib/agencies';
 import { escapeHtml, safeColor, stationName } from '../../lib/format';
+import { legendEntries } from '../../lib/legend';
+import { STORAGE_KEYS, readJson, writeJson } from '../../lib/storage';
 import { formatAge, formatInstant } from '../../lib/time';
 import { StateView } from '../../shared/state';
 
-/** Roughly the Caltrain corridor, for before anything has loaded. */
-const DEFAULT_CENTER: L.LatLngExpression = [37.55, -122.25];
-const DEFAULT_ZOOM = 9;
+/** San Francisco and the Peninsula, for before anything has loaded. */
+const DEFAULT_CENTER: L.LatLngExpression = [37.6, -122.35];
+const DEFAULT_ZOOM = 10;
+/** Street stops (as opposed to stations) only show from this zoom in. */
+const STOPS_ZOOM = 14;
+const RAIL_TYPES = new Set([0, 1, 2, 5, 12]);
+
+/** One agency's lines and places, fetched once per visit and kept. */
+interface AgencyLayers {
+  shapes: L.LayerGroup;
+  stations: L.FeatureGroup;
+  stops: L.LayerGroup;
+}
 
 const VEHICLE_STATUS: Record<string, string> = {
   incoming_at: 'Arriving',
@@ -43,6 +60,7 @@ export class MapPage {
   protected readonly op = inject(OperatorService);
   private readonly router = inject(Router);
   private readonly clock = inject(ClockService);
+  private readonly http = inject(HttpClient);
 
   /** ?vehicle=<vehicle_id> centers on that train once it shows up. */
   readonly vehicle = input<string>();
@@ -52,28 +70,35 @@ export class MapPage {
 
   private readonly code = computed(() => (this.op.noFeed() ? undefined : this.op.code()));
 
-  protected readonly shapes = polled<ShapeCollection>(() => {
-    const c = this.code();
-    return c && apiUrls.shapes(c);
-  });
+  /** Agencies drawn on the map; null until the agency list is known. */
+  protected readonly selected = signal<ReadonlySet<AgencyId> | null>(null);
+  protected readonly loadingAgencies = signal<ReadonlySet<AgencyId>>(new Set());
+  protected readonly failedAgencies = signal<ReadonlySet<AgencyId>>(new Set());
+
   protected readonly routes = polled<Route[]>(() => {
     const c = this.code();
     return c && apiUrls.routes(c);
   });
-  protected readonly vehicles = polled<Vehicle[]>(
+  private readonly allVehicles = polled<Vehicle[]>(
     () => {
       const c = this.code();
       return c && apiUrls.vehicles(c);
     },
     { intervalMs: 30_000 },
   );
-  protected readonly stations = this.op.stations;
+  protected readonly vehicles = {
+    ...this.allVehicles,
+    data: computed(() => {
+      const list = this.allVehicles.data();
+      const sel = this.selected();
+      if (!list || !sel) return list;
+      return list.filter((v) => !v.route || sel.has(v.route.agency));
+    }),
+  };
 
-  /** Legend: routes that actually have a shape drawn. */
-  protected readonly legend = computed(() => {
-    const drawn = new Set((this.shapes.data()?.features ?? []).map((f) => f.properties.route_id));
-    return (this.routes.data() ?? []).filter((r) => drawn.has(r.id));
-  });
+  protected readonly legend = computed(() =>
+    legendEntries(this.routes.data() ?? [], this.selected() ?? new Set(), (id) => this.op.agencyName(id)),
+  );
 
   /** Why /vehicles is empty: it's empty both when realtime is stale and when no trains run. */
   protected readonly noVehiclesText = computed(() => {
@@ -91,11 +116,12 @@ export class MapPage {
     return t ? formatInstant(t, this.op.timeZone()) : '';
   });
 
-  private shapeLayer: L.LayerGroup | null = null;
-  private stationLayer: L.FeatureGroup | null = null;
+  private readonly layers = new Map<AgencyId, AgencyLayers>();
+  private readonly fetching = new Set<AgencyId>();
+  private readonly renderer = L.canvas({ padding: 0.5 });
   private readonly vehicleLayer = L.layerGroup();
   private readonly vehicleMarkers = new Map<string, L.Marker>();
-  private fitted = false;
+  protected fitted = false;
   private focusedVehicle = '';
 
   protected readonly safeColor = safeColor;
@@ -116,6 +142,9 @@ export class MapPage {
       // Stations sit above the route lines (overlayPane, 400) and below trains (markerPane, 600).
       m.createPane('stations').style.zIndex = '450';
       this.vehicleLayer.addTo(m);
+      m.on('zoomend', () => {
+        for (const layers of this.layers.values()) this.updateStops(m, layers);
+      });
       this.map.set(m);
       // The container may have been sized after Leaflet measured it.
       setTimeout(() => m.invalidateSize(), 0);
@@ -123,57 +152,150 @@ export class MapPage {
 
     inject(DestroyRef).onDestroy(() => this.map()?.remove());
 
-    effect(() => this.drawShapes(this.map(), this.shapes.data()));
-    effect(() => this.drawStations(this.map(), this.stations.data()));
+    // Start with the rail agencies, or whatever was shown last time.
+    effect(() => {
+      const agencies = this.op.agencies.data();
+      if (!agencies || this.selected()) return;
+      const ids = new Set(agencies.map((a) => a.id));
+      const stored = readJson<unknown>(STORAGE_KEYS.mapAgencies(this.op.code()), null);
+      const remembered = Array.isArray(stored) ? stored.filter((id): id is string => ids.has(id)) : [];
+      const rail = agencies.filter((a) => a.route_types.some((t) => RAIL_TYPES.has(t))).map((a) => a.id);
+      this.selected.set(new Set(remembered.length ? remembered : rail.length ? rail : [...ids]));
+    });
+    effect(() => this.syncLayers(this.map(), this.selected()));
     effect(() => this.drawVehicles(this.map(), this.vehicles.data()));
     effect(() => this.focusVehicle(this.map(), this.vehicles.data(), this.vehicle()));
   }
 
-  private drawShapes(m: L.Map | null, fc: ShapeCollection | undefined): void {
-    if (!m || !fc) return;
-    this.shapeLayer?.remove();
+  protected readonly failedNames = computed(() =>
+    [...this.failedAgencies()].map((id) => this.op.agencyName(id)).join(' and '),
+  );
+
+  protected retry(): void {
+    this.failedAgencies.set(new Set());
+    this.syncLayers(this.map(), this.selected());
+  }
+
+  protected toggle(id: AgencyId): void {
+    const next = new Set(this.selected() ?? []);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    this.selected.set(next);
+    writeJson(STORAGE_KEYS.mapAgencies(this.op.code()), [...next]);
+  }
+
+  /** Show the selected agencies' layers, fetching any not loaded yet. */
+  private syncLayers(m: L.Map | null, sel: ReadonlySet<AgencyId> | null): void {
+    const code = this.code();
+    if (!m || !sel || !code) return;
+    for (const [id, layers] of this.layers) {
+      if (sel.has(id)) this.show(m, layers);
+      else this.hide(layers);
+    }
+    for (const id of sel) {
+      if (!this.layers.has(id) && !this.fetching.has(id)) void this.load(m, code, id);
+    }
+  }
+
+  private async load(m: L.Map, code: string, id: AgencyId): Promise<void> {
+    this.fetching.add(id);
+    this.mark(this.loadingAgencies, id, true);
+    this.mark(this.failedAgencies, id, false);
+    try {
+      const [shapes, places] = await Promise.all([
+        firstValueFrom(this.http.get<ShapeCollection>(apiUrls.shapes(code, { agency: id }))),
+        firstValueFrom(this.http.get<Place[]>(apiUrls.stations(code, { agency: id }))),
+      ]);
+      const layers = { shapes: this.shapeLayer(shapes), ...this.placeLayers(places) };
+      this.layers.set(id, layers);
+      if (untracked(this.selected)?.has(id)) this.show(m, layers);
+      this.fitOnce(m);
+    } catch {
+      this.mark(this.failedAgencies, id, true);
+    } finally {
+      this.fetching.delete(id);
+      this.mark(this.loadingAgencies, id, false);
+    }
+  }
+
+  private mark(set: WritableSignal<ReadonlySet<AgencyId>>, id: AgencyId, on: boolean): void {
+    const next = new Set(set());
+    if (on) next.add(id);
+    else next.delete(id);
+    set.set(next);
+  }
+
+  private show(m: L.Map, layers: AgencyLayers): void {
+    layers.shapes.addTo(m);
+    layers.stations.addTo(m);
+    this.updateStops(m, layers);
+  }
+
+  private hide(layers: AgencyLayers): void {
+    layers.shapes.remove();
+    layers.stations.remove();
+    layers.stops.remove();
+  }
+
+  private updateStops(m: L.Map, layers: AgencyLayers): void {
+    if (m.getZoom() >= STOPS_ZOOM && m.hasLayer(layers.stations)) layers.stops.addTo(m);
+    else layers.stops.remove();
+  }
+
+  private shapeLayer(fc: ShapeCollection): L.LayerGroup {
     // A dark casing under each line keeps pale route colors visible on the basemap.
     const casing = L.geoJSON(fc as GeoJSON.FeatureCollection, {
-      style: () => ({ color: '#1b1d1f', weight: 7, opacity: 0.55, lineCap: 'round', lineJoin: 'round' }),
+      style: () => ({ color: '#1b1d1f', weight: 6, opacity: 0.5, lineCap: 'round', lineJoin: 'round' }),
       interactive: false,
     });
     const lines = L.geoJSON(fc as GeoJSON.FeatureCollection, {
       style: (f) => ({
         color: safeColor((f?.properties as { color?: string } | undefined)?.color),
-        weight: 4,
+        weight: 3.5,
         opacity: 0.95,
         lineCap: 'round',
         lineJoin: 'round',
       }),
       interactive: false,
     });
-    this.shapeLayer = L.layerGroup([casing, lines]).addTo(m);
-    const b = lines.getBounds();
-    if (!this.fitted && b.isValid() && !this.vehicle()) {
-      m.fitBounds(b, { padding: [24, 24] });
-      this.fitted = true;
-    }
+    return L.layerGroup([casing, lines]);
   }
 
-  private drawStations(m: L.Map | null, list: Station[] | undefined): void {
-    if (!m || !list) return;
-    this.stationLayer?.remove();
-    const markers = list.map((s) =>
-      L.circleMarker([s.lat, s.lon], {
-        radius: 6,
+  private placeLayers(places: Place[]): Pick<AgencyLayers, 'stations' | 'stops'> {
+    const marker = (p: Place, radius: number) =>
+      L.circleMarker([p.lat, p.lon], {
+        radius,
         color: '#1b1d1f',
-        weight: 2,
+        weight: radius > 4 ? 2 : 1.5,
         fillColor: '#ffffff',
         fillOpacity: 1,
         pane: 'stations',
+        renderer: this.renderer,
       })
-        .bindTooltip(stationName(s.name), { direction: 'top', offset: [0, -6] })
-        .bindPopup(() => this.popup(stationName(s.name), '', 'Departures →', `/stations/${encodeURIComponent(s.id)}`)),
-    );
-    this.stationLayer = L.featureGroup(markers).addTo(m);
-    const b = this.stationLayer.getBounds();
-    if (!this.fitted && b.isValid() && !this.shapes.data() && !this.vehicle()) {
-      m.fitBounds(b, { padding: [24, 24] });
+        .bindTooltip(stationName(p.name), { direction: 'top', offset: [0, -radius] })
+        .bindPopup(() =>
+          this.popup(
+            stationName(p.name),
+            p.routes.map((r) => r.short_name).filter((n, i, all) => all.indexOf(n) === i).slice(0, 8).join(' · '),
+            'Departures →',
+            `/stations/${encodeURIComponent(p.id)}`,
+          ),
+        );
+    return {
+      stations: L.featureGroup(places.filter((p) => p.kind === 'station').map((p) => marker(p, 6))),
+      stops: L.layerGroup(places.filter((p) => p.kind === 'stop').map((p) => marker(p, 3.5))),
+    };
+  }
+
+  /** Frame the first agencies to load, unless a vehicle link is in charge. */
+  private fitOnce(m: L.Map): void {
+    if (this.fitted || this.vehicle() || this.fetching.size > 1) return;
+    const bounds = L.latLngBounds([]);
+    for (const layers of this.layers.values()) {
+      if (m.hasLayer(layers.stations)) bounds.extend(layers.stations.getBounds());
+    }
+    if (bounds.isValid()) {
+      m.fitBounds(bounds, { padding: [24, 24] });
       this.fitted = true;
     }
   }
@@ -194,7 +316,7 @@ export class MapPage {
           .addTo(this.vehicleLayer);
         this.vehicleMarkers.set(v.vehicle_id, marker);
       }
-      marker.options.title = `Train ${v.short_name ?? v.trip_id}`;
+      marker.options.title = this.vehicleTitle(v);
     }
     for (const [id, marker] of this.vehicleMarkers) {
       if (!seen.has(id)) {
@@ -218,7 +340,8 @@ export class MapPage {
   private vehicleIcon(v: Vehicle): L.DivIcon {
     const bg = safeColor(v.route?.color, '#888888');
     const fg = safeColor(v.route?.text_color, '#000000');
-    const label = escapeHtml((v.short_name ?? v.trip_id ?? '').slice(0, 4));
+    const number = v.short_name && v.short_name !== v.trip_id ? v.short_name : '';
+    const label = escapeHtml((number || v.route?.short_name || '').slice(0, 4));
     const arrow =
       v.bearing == null || !Number.isFinite(v.bearing)
         ? ''
@@ -235,11 +358,16 @@ export class MapPage {
   /** Built at open time, so it reflects the latest poll. */
   private vehiclePopup(id: string): HTMLElement {
     const v = this.vehicles.data()?.find((x) => x.vehicle_id === id);
-    if (!v) return this.popup('Train', 'No longer reporting', '', '');
-    const title = `Train ${v.short_name ?? v.trip_id}${v.headsign ? ` to ${v.headsign}` : ''}`;
+    if (!v) return this.popup('Vehicle', 'No longer reporting', '', '');
+    const title = this.vehicleTitle(v);
     const status = v.status ? VEHICLE_STATUS[v.status] ?? '' : '';
     const sub = [v.route?.short_name, status, formatAge(v.timestamp, this.clock.now())].filter(Boolean).join(' · ');
     return this.popup(title, sub, 'Trip details →', `/trips/${encodeURIComponent(v.trip_id)}`);
+  }
+
+  private vehicleTitle(v: Vehicle): string {
+    const what = `${v.route ? `${this.op.agencyName(v.route.agency)} ` : ''}${tripLabel({ trip_id: v.trip_id, short_name: v.short_name ?? '', route: v.route })}`;
+    return `${what}${v.headsign ? ` to ${stationName(v.headsign)}` : ''}`;
   }
 
   /** Popup content as DOM (no HTML strings from the API), with an SPA link. */

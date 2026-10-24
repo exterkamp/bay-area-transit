@@ -1,15 +1,19 @@
+import { HttpClient } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import type { PlanResponse, PlanTrip } from '../../api/models';
+import { firstValueFrom } from 'rxjs';
+import type { Place, PlanResponse, PlanTrip } from '../../api/models';
 import { apiUrls, withoutParam } from '../../api/urls';
 import { ClockService } from '../../core/clock.service';
 import { OperatorService } from '../../core/operator.service';
 import { polled } from '../../core/polled';
 import { delayInfo } from '../../lib/delay';
+import { tripLabel } from '../../lib/agencies';
 import { fareLabel, stationName, stopsText } from '../../lib/format';
-import { StationPair, sanitizePair, swapPair } from '../../lib/stations';
+import { PlaceRef, addRecent, legacyPairIds, placeRef, readPair, readRecents, swapPair } from '../../lib/places';
 import { STORAGE_KEYS, readJson, writeJson } from '../../lib/storage';
 import { countdown, formatDuration, formatInstant, nowInZone } from '../../lib/time';
+import { PlacePicker } from '../../shared/place-picker';
 import { RouteBadge } from '../../shared/route-badge';
 import { StateView } from '../../shared/state';
 import { StationNamePipe } from '../../shared/station-name.pipe';
@@ -21,25 +25,30 @@ const MAX_LIMIT = 50;
 @Component({
   selector: 'app-planner-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, RouteBadge, StateView, StopTimeView, StationNamePipe],
+  imports: [RouterLink, PlacePicker, RouteBadge, StateView, StopTimeView, StationNamePipe],
   templateUrl: './planner-page.html',
   styleUrl: './planner-page.scss',
 })
 export class PlannerPage {
   protected readonly op = inject(OperatorService);
   private readonly clock = inject(ClockService);
+  private readonly http = inject(HttpClient);
 
-  /** Optional ?from=&to= (e.g. "Plan from here" on a station board) override the remembered pair. */
+  /** Optional ?from=&to= place ids (e.g. "Plan from here" on a board) override the remembered pair. */
   readonly from = input<string>();
   readonly to = input<string>();
 
-  protected readonly fromId = signal('');
-  protected readonly toId = signal('');
+  protected readonly fromPlace = signal<PlaceRef | null>(null);
+  protected readonly toPlace = signal<PlaceRef | null>(null);
+  private readonly fromId = computed(() => this.fromPlace()?.id ?? '');
+  private readonly toId = computed(() => this.toPlace()?.id ?? '');
+  protected readonly recents = signal<PlaceRef[]>([]);
+  /** The operator whose remembered pair has been restored (restoring may need a fetch). */
+  protected readonly restored = signal('');
   protected readonly mode = signal<'now' | 'at'>('now');
   protected readonly at = signal('');
   protected readonly limit = signal(PAGE);
 
-  protected readonly stations = this.op.stations;
   private restoredFor = '';
 
   protected readonly sameStation = computed(() => !!this.fromId() && this.fromId() === this.toId());
@@ -70,49 +79,84 @@ export class PlannerPage {
   });
 
   constructor() {
-    // Restore the pair once per operator, when the station list arrives.
+    // Restore the pair once per operator, once /operators says it has a feed.
     effect(() => {
-      const list = this.stations.data();
       const code = this.op.code();
-      if (!list || this.restoredFor === code) return;
+      if (!this.op.feed() || this.restoredFor === code) return;
       this.restoredFor = code;
-      const fromQuery = untracked(this.from);
-      const toQuery = untracked(this.to);
-      const remembered = readJson<Partial<StationPair> | null>(STORAGE_KEYS.trip(code), null);
-      let wanted: Partial<StationPair> = {
-        from: fromQuery || remembered?.from,
-        to: toQuery || remembered?.to,
-      };
-      // "Plan from here" at the station you last went *to*: flip the remembered trip.
-      if (fromQuery && !toQuery && wanted.to === fromQuery) wanted = { from: fromQuery, to: remembered?.from };
-      const pair = sanitizePair(list, wanted);
-      this.fromId.set(pair.from);
-      this.toId.set(pair.to);
+      untracked(() => void this.restore(code));
     });
 
     // Remember the pair as it changes.
     effect(() => {
-      const pair = { from: this.fromId(), to: this.toId() };
+      const pair = { from: this.fromPlace(), to: this.toPlace() };
       const code = this.op.code();
-      if (this.restoredFor !== code) return;
+      if (this.restored() !== code) return;
       writeJson(STORAGE_KEYS.trip(code), pair);
     });
   }
 
-  protected setFrom(id: string): void {
-    this.fromId.set(id);
+  private async restore(code: string): Promise<void> {
+    this.recents.set(readRecents(readJson(STORAGE_KEYS.recents(code), null)));
+    const remembered = readPair(readJson(STORAGE_KEYS.trip(code), null));
+    let from: PlaceRef | string | null = remembered.from;
+    let to: PlaceRef | string | null = remembered.to;
+    if (!from && !to && code === 'RG') {
+      // First visit since the app went regional: carry over the Caltrain trip.
+      const legacy = legacyPairIds(readJson(STORAGE_KEYS.legacyTrip, null));
+      from = legacy?.from || null;
+      to = legacy?.to || null;
+    }
+    const fromQuery = untracked(this.from);
+    const toQuery = untracked(this.to);
+    const idOf = (v: PlaceRef | string | null) => (typeof v === 'string' ? v : (v?.id ?? ''));
+    if (fromQuery && idOf(from) !== fromQuery) {
+      // "Plan from here" at the place you last went *to*: flip the remembered trip.
+      if (!toQuery && idOf(to) === fromQuery) to = from;
+      from = fromQuery;
+    }
+    if (toQuery && idOf(to) !== toQuery) to = toQuery;
+
+    const [f, t] = await Promise.all([this.resolve(code, from), this.resolve(code, to)]);
+    if (this.op.code() !== code) return;
+    this.fromPlace.set(f);
+    this.toPlace.set(t && t.id !== f?.id ? t : null);
+    this.restored.set(code);
+  }
+
+  /** A remembered ref as is; a bare id (from a link or the old app) looked up. */
+  private async resolve(code: string, v: PlaceRef | string | null): Promise<PlaceRef | null> {
+    if (!v) return null;
+    if (typeof v !== 'string') return v;
+    try {
+      return placeRef(await firstValueFrom(this.http.get<Place>(apiUrls.place(code, v))));
+    } catch {
+      return null;
+    }
+  }
+
+  private remember(p: PlaceRef): void {
+    const list = addRecent(this.recents(), p);
+    this.recents.set(list);
+    writeJson(STORAGE_KEYS.recents(this.op.code()), list);
+  }
+
+  protected setFrom(p: PlaceRef): void {
+    this.fromPlace.set(p);
+    this.remember(p);
     this.limit.set(PAGE);
   }
 
-  protected setTo(id: string): void {
-    this.toId.set(id);
+  protected setTo(p: PlaceRef): void {
+    this.toPlace.set(p);
+    this.remember(p);
     this.limit.set(PAGE);
   }
 
   protected swap(): void {
-    const s = swapPair({ from: this.fromId(), to: this.toId() });
-    this.fromId.set(s.from);
-    this.toId.set(s.to);
+    const s = swapPair({ from: this.fromPlace(), to: this.toPlace() });
+    this.fromPlace.set(s.from);
+    this.toPlace.set(s.to);
     this.limit.set(PAGE);
   }
 
@@ -136,16 +180,15 @@ export class PlannerPage {
     return countdown(delayInfo(t.depart).effective, this.clock.now());
   }
 
-  /** The planner only finds direct trains; an empty result usually means a transfer. */
+  /** The planner only finds direct trips; an empty result usually means a transfer. */
   protected noDirectMessage(p: PlanResponse): string {
-    const msg =
-      `No single train runs from ${stationName(p.from.name)} to ${stationName(p.to.name)}. ` +
-      'This trip may need a transfer.';
-    return this.op.code() === 'CT'
-      ? `${msg} South County trains (Tamien to Gilroy) connect with the main line at San Jose Diridon.`
-      : msg;
+    return (
+      `Nothing runs straight from ${stationName(p.from.name)} to ${stationName(p.to.name)}. ` +
+      "This journey needs a transfer, and the planner doesn't plan those yet. The departure boards at each end show what leaves from where."
+    );
   }
 
   protected readonly duration = formatDuration;
+  protected readonly tripLabel = tripLabel;
   protected readonly stopsText = stopsText;
 }

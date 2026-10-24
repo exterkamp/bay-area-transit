@@ -4,6 +4,11 @@ describe('apiUrls', () => {
   it('builds operator-scoped paths', () => {
     expect(apiUrls.operators()).toBe('/api/v1/operators');
     expect(apiUrls.stations('CT')).toBe('/api/v1/operators/CT/stations');
+    expect(apiUrls.stations('RG', { agency: 'BA' })).toBe('/api/v1/operators/RG/stations?agency=BA');
+    expect(apiUrls.places('RG', { q: 'powell', agency: 'SF,BA', limit: 8 })).toBe(
+      '/api/v1/operators/RG/places?q=powell&agency=SF%2CBA&limit=8',
+    );
+    expect(apiUrls.place('RG', 'mtc:caltrain-4th-&-king')).toBe('/api/v1/operators/RG/places/mtc%3Acaltrain-4th-%26-king');
     expect(apiUrls.shapes('CT')).toBe('/api/v1/operators/CT/shapes');
     expect(apiUrls.vehicles('CT')).toBe('/api/v1/operators/CT/vehicles');
     expect(apiUrls.alerts('CT')).toBe('/api/v1/operators/CT/alerts');

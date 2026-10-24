@@ -6,9 +6,21 @@
     message="The {{ op.name() }} timetable hasn't been imported. Check back soon."
   />
 }
+@if (op.multiAgency() && selected(); as sel) {
+  <div class="agencies" role="group" aria-label="Show on the map">
+    @for (id of op.agencyIds(); track id) {
+      <button type="button" class="toggle" [attr.aria-pressed]="sel.has(id)" (click)="toggle(id)">
+        {{ op.agencyName(id) }}
+        @if (loadingAgencies().has(id)) {
+          <span class="spin" aria-label="loading"></span>
+        }
+      </button>
+    }
+  </div>
+}
 <div class="map-wrap card" [hidden]="op.noFeed()">
   <div #map class="map" role="region" aria-label="Map of {{ op.name() }} lines, stations and trains"></div>
-  @if (shapes.loading() || stations.loading()) {
+  @if (loadingAgencies().size && !fitted) {
     <div class="overlay"><span class="chip">Loading map…</span></div>
   }
 </div>
@@ -20,24 +32,29 @@
         <span class="bad">Live trains: {{ e.title.toLowerCase() }}</span>
       } @else if (vehicles.data(); as list) {
         @if (list.length) {
-          <span><strong>{{ list.length }}</strong> {{ list.length === 1 ? 'train' : 'trains' }} reporting</span>
+          <span><strong>{{ list.length }}</strong> {{ list.length === 1 ? 'vehicle' : 'vehicles' }} reporting</span>
           <span class="muted"> · updated {{ vehiclesUpdated() }} · every 30 s</span>
         } @else {
           <span class="muted">{{ noVehiclesText() }}</span>
         }
       } @else if (vehicles.loading()) {
-        <span class="muted">Finding trains…</span>
+        <span class="muted">Finding vehicles…</span>
       }
     </p>
-    @if (shapes.error(); as e) {
-      <p class="small bad">Route lines: {{ e.title.toLowerCase() }}</p>
+    @if (failedAgencies().size) {
+      <p class="small bad">
+        Couldn't load {{ failedNames() }}. <button type="button" class="link" (click)="retry()">Try again</button>
+      </p>
     }
     @if (legend().length) {
       <ul class="legend" aria-label="Routes">
-        @for (r of legend(); track r.id) {
-          <li><span class="swatch" [style.background]="safeColor(r.color)"></span>{{ r.short_name || r.long_name || r.id }}</li>
+        @for (e of legend(); track e.label + e.color) {
+          <li><span class="swatch" [style.background]="safeColor(e.color)"></span>{{ e.label }}</li>
         }
       </ul>
+    }
+    @if (op.multiAgency()) {
+      <p class="small muted">Zoom in to see street stops. BART doesn't publish train positions.</p>
     }
   </div>
 }

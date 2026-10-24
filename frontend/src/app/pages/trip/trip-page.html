@@ -20,7 +20,7 @@
         }
       }
     </div>
-    <h1>Train {{ t.short_name || t.trip_id }} <span class="muted">to {{ t.headsign }}</span></h1>
+    <h1>{{ tripLabel(t) }} <span class="muted">to {{ t.headsign | stationName }}</span></h1>
     <p class="facts small muted">
       <span>{{ t.service_date | serviceDay }}</span>
       @if (t.bikes_allowed) {
@@ -70,7 +70,7 @@
           }
         </span>
         @if (r.vehicleHere !== undefined) {
-          <span class="here-tag small">Train is {{ r.vehicleHere === 'stopped_at' ? 'here' : 'approaching' }}</span>
+          <span class="here-tag small">{{ noun() }} is {{ r.vehicleHere === 'stopped_at' ? 'here' : 'approaching' }}</span>
         }
       </li>
     }
@@ -78,8 +78,8 @@
 } @else if (trip.error(); as e) {
   <app-state
     [kind]="e.kind === 'not-found' || e.kind === 'no-feed' ? 'empty' : 'error'"
-    [title]="e.kind === 'not-found' ? 'That train doesn’t run that day' : e.title"
-    [message]="e.kind === 'not-found' ? 'It may be a weekday-only train, or the date has passed.' : e.message"
+    [title]="e.kind === 'not-found' ? 'That trip doesn’t run that day' : e.title"
+    [message]="e.kind === 'not-found' ? 'It may run on weekdays only, or the date has passed.' : e.message"
   >
     @if (e.kind === 'not-found') {
       <a class="btn" routerLink="/">Plan a trip</a>
@@ -88,5 +88,5 @@
     }
   </app-state>
 } @else {
-  <app-state kind="loading" title="Loading train…" />
+  <app-state kind="loading" title="Loading trip…" />
 }

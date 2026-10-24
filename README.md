@@ -1,15 +1,16 @@
 # bay-area-transit
 
-Caltrain (and BART) schedules with live delays, built on the
-[511.org open data](https://511.org/open-data/transit) GTFS and
-GTFS-realtime feeds.
+Muni Metro, BART, SamTrans and Caltrain schedules with live predictions,
+built on the [511.org open data](https://511.org/open-data/transit)
+regional GTFS and GTFS-realtime feeds. Search any station or stop, plan
+direct trips, see departure boards and live vehicles on a map.
 
 - **backend/**: Django 5.2 + PostGIS. Imports static GTFS feeds into a
   constrained schema, polls GTFS-realtime, and serves a read-only JSON API
   ([docs/api.md](docs/api.md)): trip planning, departure boards, trip
   detail, live vehicles and alerts.
-- **frontend/**: Angular 22. Trip planner, station boards, trip detail and
-  a Leaflet map with live trains.
+- **frontend/**: Angular 22. Place search, trip planner, departure boards,
+  trip detail and a Leaflet map with per-agency layers and live vehicles.
 - **docker-compose.yml**: `db` (PostGIS), `backend` (gunicorn), `worker`
   (feed refresh and realtime poller) and `web` (nginx serving the built
   frontend and proxying `/api`).
@@ -32,8 +33,10 @@ docker compose up -d --build
 open http://127.0.0.1:8086
 ```
 
-On first start the worker downloads and imports the feeds (about 15
-seconds for Caltrain and BART), then starts polling realtime.
+On first start the worker downloads 511's regional feed (about 60 MB) and
+imports the four agencies (about a minute), then starts polling realtime.
+`?op=CT` on any URL shows a single agency's own feed instead, if
+`TRANSIT_OPERATORS` imports it.
 
 ## Develop
 
@@ -59,9 +62,9 @@ Useful management commands (`$DC exec backend python manage.py ...`):
 
 | Command | Does |
 |---|---|
-| `fetch_feeds [CT BA]` | Download static feeds from 511, import any that changed |
+| `fetch_feeds [RG]` | Download static feeds from 511, import any that changed |
 | `import_gtfs path.zip --operator CT` | Import a local archive or folder |
-| `poll_realtime [CT] [--kind alerts]` | Poll realtime once |
+| `poll_realtime [RG] [--kind alerts]` | Poll realtime once |
 | `run_worker` | What the `worker` service runs |
 | `createsuperuser` | For `/admin/` (read-only browsing), at http://127.0.0.1:8087/admin/ only: the `web` container deliberately doesn't proxy it |
 

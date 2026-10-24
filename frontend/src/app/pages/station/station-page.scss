@@ -23,6 +23,13 @@
   flex-wrap: wrap;
 }
 
+.lines {
+  margin: 0.45rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
 .updated { margin: 0 0 0.75rem; min-height: 1.2em; }
 .notice { margin-bottom: 0.75rem; }
 
@@ -41,6 +48,15 @@
   letter-spacing: 0.05em;
   color: var(--muted);
   margin: 0 0 0.4rem 0.1rem;
+
+  .agency { color: var(--fg); margin-right: 0.3rem; }
+  .detail {
+    display: block;
+    margin-top: 0.1rem;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+  }
 }
 
 .dep {

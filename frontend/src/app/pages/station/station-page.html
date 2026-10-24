@@ -15,12 +15,20 @@
       <h1>{{ name() || '…' }}</h1>
       @if (station(); as s) {
         <p class="facts small muted">
+          <app-agency-chips [ids]="s.agencies" />
           @if (s.wheelchair_boarding === 'accessible') {
             <span>♿ Accessible</span>
           } @else if (s.wheelchair_boarding === 'inaccessible') {
             <span>Not wheelchair accessible</span>
           }
         </p>
+        @if (s.routes.length) {
+          <p class="lines" aria-label="Routes">
+            @for (r of s.routes; track r.id) {
+              <app-route-badge [route]="r" />
+            }
+          </p>
+        }
       }
     </div>
     <a class="btn" routerLink="/" [queryParams]="{ from: id() }">Plan from here</a>
@@ -39,13 +47,21 @@
     }
 
     @if (groups().length === 0) {
-      <app-state kind="empty" title="No departures scheduled" message="No trains are scheduled to leave this station in the next day." />
+      <app-state kind="empty" title="No departures scheduled" message="Nothing is scheduled to leave from here in the next day." />
     }
 
     <div class="groups">
-      @for (g of groups(); track g.direction) {
-        <section class="group" [attr.aria-label]="g.label">
-          <h2>{{ g.label }}</h2>
+      @for (g of groups(); track g.agency + g.direction) {
+        <section class="group" [attr.aria-label]="(mixed() ? op.agencyName(g.agency) + ' ' : '') + g.label">
+          <h2>
+            @if (mixed()) {
+              <span class="agency">{{ op.agencyName(g.agency) }}</span>
+            }
+            {{ g.label }}
+            @if (g.detail) {
+              <span class="detail">{{ g.detail }}</span>
+            }
+          </h2>
           <ol class="rows card">
             @for (d of g.departures; track d.trip_id + '@' + d.service_date) {
               <li class="dep" [class.is-canceled]="d.status === 'canceled'">
@@ -53,7 +69,9 @@
                   <app-stop-time class="t" [time]="d.depart" [canceled]="d.status === 'canceled'" />
                   <span class="train">
                     <app-route-badge [route]="d.route" />
-                    <span class="num">{{ d.short_name || d.trip_id }}</span>
+                    @if (number(d); as n) {
+                      <span class="num">{{ n }}</span>
+                    }
                   </span>
                 </a>
                 <span class="right">

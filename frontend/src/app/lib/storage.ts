@@ -39,7 +39,13 @@ export function writeJson(key: string, value: unknown, store: KeyValueStore | nu
 }
 
 export const STORAGE_KEYS = {
-  /** Last from/to for an operator. */
-  trip: (op: string) => `bat.trip.${op}`,
+  /** Last from/to for an operator, as PlaceRefs. */
+  trip: (op: string) => `bat.trip2.${op}`,
+  /** The Caltrain-only app's last from/to, as bare station ids. Read once, to migrate. */
+  legacyTrip: 'bat.trip.CT',
+  /** Places recently picked, most recent first. */
+  recents: (op: string) => `bat.recents.${op}`,
+  /** Agencies shown on the map. */
+  mapAgencies: (op: string) => `bat.map.${op}`,
   dismissedAlerts: 'bat.dismissedAlerts',
 } as const;
