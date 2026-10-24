@@ -1,0 +1,3 @@
+route_id,agency_id,route_short_name,route_long_name,route_type,route_color,route_text_color
+LOC,TT,Local,,2,99D7DC,000000
+EXP,TT,Express,Express Service,2,#E31837,not-a-color

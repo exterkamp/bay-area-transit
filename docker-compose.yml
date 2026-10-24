@@ -1,0 +1,73 @@
+name: bay-area-transit
+
+# Production-shaped stack. Nothing is published beyond localhost; when this
+# goes behind Traefik, `web` also joins the proxyhosts network.
+#
+#   ./scripts/bootstrap.sh            # once: .env + secrets
+#   (cd frontend && npm run build)    # the web image copies the built app
+#   docker compose up -d --build
+
+x-backend: &backend
+  build:
+    context: ./backend
+  env_file: .env
+  environment:
+    POSTGRES_HOST: db
+    POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    TRANSIT_511_API_KEY_FILE: /run/secrets/transit_511_api_key
+  secrets: [postgres_password, transit_511_api_key]
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_DB: transit
+      POSTGRES_USER: transit
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U transit -d transit"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  
+  backend:
+    <<: *backend
+    command: serve
+    ports:
+      - "127.0.0.1:${API_PORT:-8087}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    <<: *backend
+    command: worker
+    healthcheck:
+      disable: true
+    depends_on:
+      backend:
+        condition: service_healthy  # migrations have run
+
+  web:
+    build:
+      context: ./frontend
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8086}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+  
+volumes:
+  db:
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  transit_511_api_key:
+    file: ./secrets/transit_511_api_key

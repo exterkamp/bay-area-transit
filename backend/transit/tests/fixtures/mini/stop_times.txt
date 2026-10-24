@@ -1,0 +1,17 @@
+trip_id,arrival_time,departure_time,stop_id,stop_sequence,pickup_type,drop_off_type,shape_dist_traveled,timepoint
+T1,08:00:00,08:00:00,south_nb,1,0,0,0,1
+T1,08:10:00,08:11:00,mid_nb,2,0,0,20,1
+T1,08:20:00,08:20:00,north_nb,3,0,0,40,1
+T2,08:30:00,08:30:00,south_nb,1,,,,
+T2,8:45:00,8:45:00,north_nb,2,,,,
+T3,23:50:00,23:50:00,north_sb,10,,,,
+T3,24:10:00,24:10:00,mid_sb,20,,,,
+T3,24:30:00,24:30:00,south_sb,30,,,,
+T4,10:00:00,10:00:00,south_nb,1,,,0,
+T4,,,mid_nb,2,,,10,
+T4,10:20:00,10:20:00,north_nb,3,,,40,
+T5,12:00:00,12:00:00,south_nb,1,,,,
+T5,12:20:00,12:20:00,north_nb,2,,,,
+T6,09:00:00,09:00:00,south_nb,1,,,,
+T6,09:10:00,09:10:00,mid_nb,2,1,0,,
+T6,09:20:00,09:20:00,north_nb,3,,,,

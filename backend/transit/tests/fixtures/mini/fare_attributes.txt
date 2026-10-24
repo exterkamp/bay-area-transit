@@ -1,0 +1,4 @@
+fare_id,price,currency_type,payment_method,transfers,transfer_duration
+F13,3.75,USD,1,,
+F12,2.50,usd,1,,
+F23,2.50,USD,1,,

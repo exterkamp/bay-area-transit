@@ -1,0 +1,4 @@
+shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence,shape_dist_traveled
+s_nb,37.40,-122.10,1,0
+s_nb,37.80,-122.40,3,40
+s_nb,37.60,-122.30,2,20

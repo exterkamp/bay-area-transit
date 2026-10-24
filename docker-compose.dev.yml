@@ -1,0 +1,23 @@
+# Development overrides: Django autoreload on the mounted source, DEBUG on,
+# dev dependencies (pytest) installed. Run the Angular dev server separately;
+# it proxies /api to the backend on 127.0.0.1:${API_PORT:-8087}.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db backend worker
+services:
+  backend:
+    build:
+      args:
+        UV_GROUPS: ""
+    command: dev
+    environment:
+      DJANGO_DEBUG: "1"
+    volumes:
+      - ./backend:/app
+  worker:
+    build:
+      args:
+        UV_GROUPS: ""
+    environment:
+      DJANGO_DEBUG: "1"
+    volumes:
+      - ./backend:/app

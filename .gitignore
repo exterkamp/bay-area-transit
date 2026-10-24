@@ -1,13 +1,18 @@
-# Any cached transit data.
-data/*
-
-# Secrets.
+# Secrets and local config.
+.env
 secrets/*
 
-# Django files
-bayareatransit/db.sqlite3
-**/__pycache__
-**/migrations/*
+# Cached downloads.
+data/
 
-# example files
-with-docker-compose-app/*
+# Python
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+backend/staticfiles/
+.venv/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/

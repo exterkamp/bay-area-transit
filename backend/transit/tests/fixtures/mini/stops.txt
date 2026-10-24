@@ -1,0 +1,11 @@
+stop_id,stop_name,stop_lat,stop_lon,zone_id,location_type,parent_station,wheelchair_boarding,platform_code
+north,North,37.80,-122.40,,1,,1,
+north_nb,North Northbound,37.8001,-122.4001,Z3,0,north,1,1
+north_sb,North Southbound,37.7999,-122.3999,Z3,0,north,1,2
+mid,Mid,37.60,-122.30,,1,,0,
+mid_nb,Mid Northbound,37.6001,-122.3001,Z2,0,mid,,
+mid_sb,Mid Southbound,37.5999,-122.2999,Z2,0,mid,,
+mid_entrance,Mid Main Entrance,37.6002,-122.3002,,2,mid,,
+south,South,37.40,-122.10,,1,,2,
+south_nb,South Northbound,37.4001,-122.1001,Z1,0,south,,
+south_sb,South Southbound,37.3999,-122.0999,Z1,0,south,,
