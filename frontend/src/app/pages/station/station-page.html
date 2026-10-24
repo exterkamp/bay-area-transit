@@ -1,0 +1,84 @@
+@if (op.noFeed()) {
+  <app-state
+    kind="empty"
+    title="No schedule loaded yet"
+    message="The {{ op.name() }} timetable hasn't been imported. Check back soon."
+  />
+} @else if (board.error()?.kind === 'not-found' && !board.data()) {
+  <app-state kind="empty" title="Couldn't find that station" message="Check the link, or pick a station on the map.">
+    <a class="btn" routerLink="/map">Station map</a>
+  </app-state>
+} @else {
+  <header class="head">
+    <div>
+      <p class="eyebrow">Departures</p>
+      <h1>{{ name() || '…' }}</h1>
+      @if (station(); as s) {
+        <p class="facts small muted">
+          @if (s.wheelchair_boarding === 'accessible') {
+            <span>♿ Accessible</span>
+          } @else if (s.wheelchair_boarding === 'inaccessible') {
+            <span>Not wheelchair accessible</span>
+          }
+        </p>
+      }
+    </div>
+    <a class="btn" routerLink="/" [queryParams]="{ from: id() }">Plan from here</a>
+  </header>
+
+  @if (board.data(); as b) {
+    <p class="updated small muted">
+      @if (board.refreshing()) {
+        Updating…
+      } @else if (updated()) {
+        Updated {{ updated() }} · refreshes every minute
+      }
+    </p>
+    @if (board.error(); as e) {
+      <p class="notice" role="alert">Couldn't refresh — {{ e.title.toLowerCase() }}. Showing earlier departures.</p>
+    }
+
+    @if (groups().length === 0) {
+      <app-state kind="empty" title="No departures scheduled" message="No trains are scheduled to leave this station in the next day." />
+    }
+
+    <div class="groups">
+      @for (g of groups(); track g.direction) {
+        <section class="group" [attr.aria-label]="g.label">
+          <h2>{{ g.label }}</h2>
+          <ol class="rows card">
+            @for (d of g.departures; track d.trip_id + '@' + d.service_date) {
+              <li class="dep" [class.is-canceled]="d.status === 'canceled'">
+                <a class="main" [routerLink]="['/trips', d.trip_id]" [queryParams]="{ date: d.service_date }">
+                  <app-stop-time class="t" [time]="d.depart" [canceled]="d.status === 'canceled'" />
+                  <span class="train">
+                    <app-route-badge [route]="d.route" />
+                    <span class="num">{{ d.short_name || d.trip_id }}</span>
+                  </span>
+                </a>
+                <span class="right">
+                  @if (d.status === 'canceled') {
+                    <span class="status-tag canceled">Canceled</span>
+                  } @else if (countdownFor(d); as c) {
+                    <span class="countdown">{{ c }}</span>
+                  }
+                </span>
+                <a class="dest" [routerLink]="['/stations', d.destination.id]">to {{ d.destination.name | stationName }}</a>
+              </li>
+            }
+          </ol>
+        </section>
+      }
+    </div>
+  } @else if (board.error(); as e) {
+    <app-state [kind]="e.kind === 'no-feed' || e.kind === 'not-found' ? 'empty' : 'error'" [title]="e.title" [message]="e.message">
+      @if (e.kind === 'not-found') {
+        <a class="btn" routerLink="/map">Find a station on the map</a>
+      } @else {
+        <button type="button" class="btn" (click)="board.reload()">Try again</button>
+      }
+    </app-state>
+  } @else {
+    <app-state kind="loading" title="Loading departures…" />
+  }
+}

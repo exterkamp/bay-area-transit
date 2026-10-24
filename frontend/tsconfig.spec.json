@@ -1,0 +1,12 @@
+/* The test tree. Vitest transpiles rather than type-checks, so this file is
+   for the editor and for `tsc --noEmit`. */
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["vitest/globals"]
+  },
+  "include": [
+    "src/**/*.spec.ts",
+    "src/testing/**/*.ts"
+  ]
+}

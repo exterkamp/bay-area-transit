@@ -1,0 +1,42 @@
+<a class="skip" href="#main">Skip to content</a>
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a class="brand" routerLink="/">
+      <span class="logo" aria-hidden="true"></span>
+      <span class="brand-text">
+        <span class="brand-op">{{ op.name() }}</span>
+        <span class="brand-sub">Bay Area Transit</span>
+      </span>
+    </a>
+    <app-realtime-indicator />
+  </div>
+  <nav class="wrap tabs" aria-label="Main">
+    <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Trips</a>
+    <a routerLink="/map" routerLinkActive="active">Map</a>
+  </nav>
+</header>
+
+<div class="wrap">
+  <app-alerts-banner />
+</div>
+
+<main id="main" class="wrap">
+  <router-outlet />
+</main>
+
+<footer class="wrap footer">
+  @if (op.feed(); as f) {
+    <p>
+      {{ op.name() }} timetable valid {{ f.start_date | day }} – {{ f.end_date | day }}
+      <span class="sep">·</span> feed {{ f.version }}
+    </p>
+    @if (feedOutOfRange()) {
+      <p class="warn">Today is outside this timetable's dates — times may be wrong.</p>
+    }
+  } @else if (op.noFeed()) {
+    <p>No {{ op.name() }} timetable has been imported yet.</p>
+  } @else if (op.operators.error(); as e) {
+    <p>{{ e.title }}</p>
+  }
+  <p class="credits">Map data © OpenStreetMap contributors. Not affiliated with {{ op.name() }}.</p>
+</footer>

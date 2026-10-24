@@ -1,0 +1,43 @@
+<h1 class="visually-hidden">Map</h1>
+@if (op.noFeed()) {
+  <app-state
+    kind="empty"
+    title="No schedule loaded yet"
+    message="The {{ op.name() }} timetable hasn't been imported. Check back soon."
+  />
+}
+<div class="map-wrap card" [hidden]="op.noFeed()">
+  <div #map class="map" role="region" aria-label="Map of {{ op.name() }} lines, stations and trains"></div>
+  @if (shapes.loading() || stations.loading()) {
+    <div class="overlay"><span class="chip">Loading map…</span></div>
+  }
+</div>
+
+@if (!op.noFeed()) {
+  <div class="below">
+    <p class="small status">
+      @if (vehicles.error(); as e) {
+        <span class="bad">Live trains: {{ e.title.toLowerCase() }}</span>
+      } @else if (vehicles.data(); as list) {
+        @if (list.length) {
+          <span><strong>{{ list.length }}</strong> {{ list.length === 1 ? 'train' : 'trains' }} reporting</span>
+          <span class="muted"> · updated {{ vehiclesUpdated() }} · every 30 s</span>
+        } @else {
+          <span class="muted">{{ noVehiclesText() }}</span>
+        }
+      } @else if (vehicles.loading()) {
+        <span class="muted">Finding trains…</span>
+      }
+    </p>
+    @if (shapes.error(); as e) {
+      <p class="small bad">Route lines: {{ e.title.toLowerCase() }}</p>
+    }
+    @if (legend().length) {
+      <ul class="legend" aria-label="Routes">
+        @for (r of legend(); track r.id) {
+          <li><span class="swatch" [style.background]="safeColor(r.color)"></span>{{ r.short_name || r.long_name || r.id }}</li>
+        }
+      </ul>
+    }
+  </div>
+}

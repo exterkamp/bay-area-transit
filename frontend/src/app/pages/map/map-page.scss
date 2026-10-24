@@ -1,0 +1,64 @@
+:host { display: block; }
+
+.map-wrap {
+  position: relative;
+  overflow: hidden;
+  // Full-bleed on phones: the map is the page.
+  margin-inline: -1rem;
+  border-radius: 0;
+  border-inline: 0;
+}
+
+@media (min-width: 44rem) {
+  .map-wrap { margin-inline: 0; border-radius: var(--radius); border-inline: 1px solid var(--line); }
+}
+
+.map {
+  height: calc(100dvh - 15rem);
+  min-height: 20rem;
+  max-height: 52rem;
+  z-index: 0;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 400;
+}
+
+.chip {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  box-shadow: var(--shadow);
+}
+
+.below { margin-top: 0.6rem; }
+.status { margin: 0 0 0.5rem; }
+.bad { color: var(--bad); }
+
+.legend {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.9rem;
+  font-size: 0.82rem;
+  color: var(--fg-soft);
+
+  li { display: inline-flex; align-items: center; gap: 0.4rem; }
+}
+
+.swatch {
+  width: 1.1rem;
+  height: 0.35rem;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.35);
+}

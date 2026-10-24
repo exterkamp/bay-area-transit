@@ -1,0 +1,173 @@
+@if (op.noFeed()) {
+  <app-state
+    kind="empty"
+    title="No schedule loaded yet"
+    message="The {{ op.name() }} timetable hasn't been imported. Check back soon."
+  />
+} @else if (op.unknownOperator()) {
+  <app-state kind="error" title="Unknown operator" message="There's no operator with code {{ op.code() }}." />
+} @else {
+  <section class="card planner" aria-labelledby="plan-h">
+    <h1 id="plan-h" class="visually-hidden">Plan a trip</h1>
+
+    @if (stations.error(); as e) {
+      @if (!stations.data()) {
+        <app-state kind="error" [title]="e.title" [message]="e.message">
+          <button type="button" class="btn" (click)="stations.reload()">Try again</button>
+        </app-state>
+      }
+    }
+    @if (stations.loading()) {
+      <app-state kind="loading" title="Loading stations…" />
+    }
+
+    @if (stations.data(); as list) {
+      <div class="pair">
+        <label class="field">
+          <span>From</span>
+          <select class="control" (change)="setFrom($any($event.target).value)">
+            <option value="" [selected]="!fromId()">Choose a station</option>
+            @for (s of list; track s.id) {
+              <option [value]="s.id" [selected]="s.id === fromId()">{{ s.name | stationName }}</option>
+            }
+          </select>
+        </label>
+
+        <button
+          type="button"
+          class="swap"
+          (click)="swap()"
+          [disabled]="!fromId() && !toId()"
+          aria-label="Swap from and to"
+          title="Swap"
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path d="M7 4v13m0 0-3.5-3.5M7 17l3.5-3.5M17 20V7m0 0-3.5 3.5M17 7l3.5 3.5"
+              fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+
+        <label class="field">
+          <span>To</span>
+          <select class="control" (change)="setTo($any($event.target).value)">
+            <option value="" [selected]="!toId()">Choose a station</option>
+            @for (s of list; track s.id) {
+              <option [value]="s.id" [selected]="s.id === toId()">{{ s.name | stationName }}</option>
+            }
+          </select>
+        </label>
+      </div>
+
+      <div class="when">
+        <div class="segmented" role="group" aria-label="When">
+          <button type="button" [attr.aria-pressed]="mode() === 'now'" (click)="setMode('now')">Leave now</button>
+          <button type="button" [attr.aria-pressed]="mode() === 'at'" (click)="setMode('at')">Depart at</button>
+        </div>
+        @if (mode() === 'at') {
+          <label class="at">
+            <span class="visually-hidden">Departure date and time ({{ op.timeZone() }})</span>
+            <input
+              class="control"
+              type="datetime-local"
+              [value]="at()"
+              (change)="setAt($any($event.target).value)"
+            />
+          </label>
+        }
+      </div>
+    }
+  </section>
+
+  @if (sameStation()) {
+    <app-state kind="empty" title="Pick two different stations" />
+  } @else if (!fromId() || !toId()) {
+    @if (stations.data()) {
+      <app-state kind="empty" title="Where are you headed?" message="Choose a From and To station to see the next trains." />
+    }
+  } @else {
+    <section class="results" aria-live="polite" aria-labelledby="results-h">
+      @if (plan.data(); as p) {
+        <header class="results-head">
+          <h2 id="results-h">
+            <a [routerLink]="['/stations', p.from.id]">{{ p.from.name | stationName }}</a>
+            <span class="to" aria-label="to">→</span>
+            <a [routerLink]="['/stations', p.to.id]">{{ p.to.name | stationName }}</a>
+          </h2>
+          <p class="sub muted small">
+            @if (fare()) {
+              <span class="fare">{{ fare() }}</span>
+              <span aria-hidden="true">·</span>
+            }
+            @if (plan.refreshing()) {
+              <span>Updating…</span>
+            } @else if (updated()) {
+              <span>{{ mode() === 'now' ? 'Updated' : 'As of' }} {{ updated() }}</span>
+            }
+          </p>
+        </header>
+
+        @if (plan.error(); as e) {
+          <p class="notice" role="alert">Couldn't refresh — {{ e.title.toLowerCase() }}. Showing earlier results.</p>
+        }
+
+        @if (p.trips.length === 0) {
+          <app-state
+            kind="empty"
+            title="No direct trains"
+            [message]="noDirectMessage(p)"
+          >
+            <div class="empty-actions">
+              <a class="btn" [routerLink]="['/stations', p.from.id]">{{ p.from.name | stationName }} departures</a>
+              <a class="btn" [routerLink]="['/stations', p.to.id]">{{ p.to.name | stationName }} departures</a>
+            </div>
+          </app-state>
+        } @else {
+          <ol class="rows card trips">
+            @for (t of p.trips; track t.trip_id + '@' + t.service_date) {
+              <li [class.is-canceled]="t.status === 'canceled'">
+                <a class="trip" [routerLink]="['/trips', t.trip_id]" [queryParams]="{ date: t.service_date }">
+                  <div class="times strike">
+                    <app-stop-time [time]="t.depart" [canceled]="t.status === 'canceled'" />
+                    <span class="arr">
+                      <span class="arrow" aria-label="arrives">→</span>
+                      <app-stop-time [time]="t.arrive" [canceled]="t.status === 'canceled'" [showDelay]="false" />
+                    </span>
+                  </div>
+                  <div class="right">
+                    @if (t.status === 'canceled') {
+                      <span class="status-tag canceled">Canceled</span>
+                    } @else if (countdownFor(t); as c) {
+                      <span class="countdown">{{ c }}</span>
+                    }
+                  </div>
+                  <div class="meta">
+                    <app-route-badge [route]="t.route" />
+                    <span class="train">Train {{ t.short_name || t.trip_id }}</span>
+                    <span aria-hidden="true">·</span>
+                    <span>{{ duration(t.duration_minutes) }}</span>
+                    <span aria-hidden="true">·</span>
+                    <span>{{ stopsText(t.stops_between) }}</span>
+                    @if (t.status === 'live') {
+                      <span class="status-tag live" title="Live times">● Live</span>
+                    }
+                  </div>
+                </a>
+              </li>
+            }
+          </ol>
+          @if (canShowMore()) {
+            <div class="more">
+              <button type="button" class="btn" (click)="more()" [disabled]="plan.refreshing()">Later trains</button>
+            </div>
+          }
+        }
+      } @else if (plan.error(); as e) {
+        <app-state kind="error" [title]="e.title" [message]="e.message">
+          <button type="button" class="btn" (click)="plan.reload()">Try again</button>
+        </app-state>
+      } @else {
+        <app-state kind="loading" title="Finding trains…" />
+      }
+    </section>
+  }
+}

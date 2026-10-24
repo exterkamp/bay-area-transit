@@ -1,0 +1,309 @@
+// Global tokens and base styles. No UI framework: everything here is ours.
+
+:root {
+  color-scheme: light dark;
+
+  --bg: #f6f5f2;
+  --surface: #ffffff;
+  --surface-2: #efeee9;
+  --fg: #1b1d1f;
+  --fg-soft: #3a3e43;
+  --muted: #676d74;
+  --line: #e1dfd8;
+  --accent: #c8102e; // Caltrain red
+  --accent-fg: #ffffff;
+  --focus: #2563eb;
+  --ok: #16794a;
+  --warn: #9a5b00;
+  --warn-bg: #fdf3e1;
+  --warn-line: #f0d9ad;
+  --bad: #b42318;
+  --bad-bg: #fdecea;
+
+  --radius: 0.75rem;
+  --radius-sm: 0.5rem;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 2px 8px rgb(0 0 0 / 0.04);
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121416;
+    --surface: #1b1e21;
+    --surface-2: #25292d;
+    --fg: #eceef0;
+    --fg-soft: #c9cdd1;
+    --muted: #9aa1a8;
+    --line: #2e3337;
+    --accent: #ff5468;
+    --accent-fg: #1b0005;
+    --focus: #7aa7ff;
+    --ok: #4cc38a;
+    --warn: #f0b44c;
+    --warn-bg: #2b2213;
+    --warn-line: #4a3a1c;
+    --bad: #ff7b6e;
+    --bad-bg: #2f1715;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 1rem;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 0.15em;
+  &:hover { text-decoration-color: currentColor; }
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+h1, h2, h3 { line-height: 1.2; margin: 0; }
+h1 { font-size: 1.4rem; font-weight: 700; }
+h2 { font-size: 1rem; font-weight: 650; }
+
+.wrap {
+  width: 100%;
+  max-width: 44rem;
+  margin-inline: auto;
+  padding-inline: max(1rem, env(safe-area-inset-left));
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.muted { color: var(--muted); }
+.small { font-size: 0.85rem; }
+.nowrap { white-space: nowrap; }
+.tabular { font-variant-numeric: tabular-nums; }
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+// --- controls ---------------------------------------------------------------
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 2.5rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 0.92rem;
+  text-decoration: none;
+  cursor: pointer;
+  &:hover { background: var(--surface-2); }
+  &:disabled { opacity: 0.55; cursor: default; }
+  &.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+  &.ghost { border-color: transparent; background: transparent; }
+}
+
+.field {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+
+  > span {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+}
+
+.control {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 1rem; // 16px keeps iOS from zooming on focus
+}
+
+select.control {
+  appearance: none;
+  padding-right: 2rem;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 1.05rem) 55%, calc(100% - 0.7rem) 55%;
+  background-size: 0.35rem 0.35rem;
+  background-repeat: no-repeat;
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 0.2rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  gap: 0.2rem;
+
+  button {
+    border: 0;
+    background: transparent;
+    padding: 0.4rem 0.8rem;
+    border-radius: calc(var(--radius-sm) - 0.15rem);
+    font-weight: 600;
+    font-size: 0.88rem;
+    color: var(--muted);
+    cursor: pointer;
+    &[aria-pressed='true'] { background: var(--surface); color: var(--fg); box-shadow: var(--shadow); }
+  }
+}
+
+// --- lists of trains ----------------------------------------------------------
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  > li + li { border-top: 1px solid var(--line); }
+}
+
+.status-tag {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.05rem 0.4rem;
+  border-radius: 0.3rem;
+  &.canceled { background: var(--bad-bg); color: var(--bad); }
+  &.live { color: var(--ok); padding-inline: 0; }
+  &.skipped { background: var(--surface-2); color: var(--muted); }
+}
+
+.is-canceled .strike {
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+  color: var(--muted);
+}
+
+.notice {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+// --- Leaflet ------------------------------------------------------------------
+
+.leaflet-container {
+  font: inherit;
+  background: var(--surface-2);
+}
+
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.leaflet-popup-content {
+  margin: 0.7rem 0.9rem;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  .popup-title { font-weight: 700; display: block; }
+  .popup-sub { color: var(--muted); display: block; font-size: 0.82rem; }
+  .popup-link { display: inline-block; margin-top: 0.35rem; font-weight: 600; color: var(--accent); }
+}
+
+@media (prefers-color-scheme: dark) {
+  .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.88) saturate(0.6); }
+  .leaflet-bar a, .leaflet-control-attribution { background: var(--surface) !important; color: var(--fg) !important; }
+  .leaflet-control-attribution a { color: var(--fg-soft) !important; }
+}
+
+// Vehicle marker: a disc in the route color with a heading wedge.
+.veh-icon { background: none; border: 0; }
+.veh {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+
+  .veh-arrow {
+    position: absolute;
+    inset: 0;
+    &::before {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: -3px;
+      transform: translateX(-50%);
+      border-left: 7px solid transparent;
+      border-right: 7px solid transparent;
+      border-bottom: 10px solid var(--fg);
+    }
+  }
+
+  .veh-disc {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--c, #888);
+    color: var(--t, #000);
+    border: 2px solid var(--surface);
+    box-shadow: 0 0 0 1.5px var(--fg), 0 2px 6px rgb(0 0 0 / 0.3);
+    display: grid;
+    place-items: center;
+    font-size: 10px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+}
