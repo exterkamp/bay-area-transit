@@ -29,8 +29,18 @@ export const apiUrls = {
     withQuery(`${op(code)}/stations`, { agency: p.agency, route: p.route }),
   routes: (code: string, p: { agency?: string | null } = {}) => withQuery(`${op(code)}/routes`, { agency: p.agency }),
   shapes: (code: string, p: { agency?: string | null } = {}) => withQuery(`${op(code)}/shapes`, { agency: p.agency }),
-  plan: (code: string, p: { from: string; to: string; at?: string | null; limit?: number }) =>
-    withQuery(`${op(code)}/plan`, { from: p.from, to: p.to, at: p.at, limit: p.limit }),
+  plan: (
+    code: string,
+    p: { from: string; to: string; at?: string | null; limit?: number; agency?: string | null; route?: string | null },
+  ) =>
+    withQuery(`${op(code)}/plan`, {
+      from: p.from,
+      to: p.to,
+      at: p.at,
+      limit: p.limit,
+      agency: p.agency,
+      route: p.route,
+    }),
   departures: (code: string, stationId: string, p: { at?: string | null; limit?: number } = {}) =>
     withQuery(`${op(code)}/stations/${seg(stationId)}/departures`, { at: p.at, limit: p.limit }),
   trip: (code: string, tripId: string, date?: string | null) =>

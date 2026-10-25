@@ -190,7 +190,13 @@ def plan(request, code):
     params = request.query_params
     return Response(
         queries.plan(
-            ctx, params.get("from"), params.get("to"), parse_at(request, ctx), params.get("limit")
+            ctx,
+            params.get("from"),
+            params.get("to"),
+            parse_at(request, ctx),
+            params.get("limit"),
+            agency=params.get("agency"),
+            route=params.get("route"),
         )
     )
 

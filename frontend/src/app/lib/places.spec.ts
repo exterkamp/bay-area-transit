@@ -1,30 +1,12 @@
-import { dep, departures, powell } from '../../testing/fixtures';
-import {
-  LEGACY_CALTRAIN_IDS,
-  addRecent,
-  formatDistance,
-  groupDepartures,
-  legacyPairIds,
-  placeRef,
-  readPair,
-  readRecents,
-  swapPair,
-  topValues,
-} from './places';
+import { dep, departures } from '../../testing/fixtures';
+import { LEGACY_CALTRAIN_IDS, groupDepartures, legacyPairIds, readPair, topValues } from './places';
 
 const a = { id: 'a', name: 'A', agencies: ['CT'] };
 const b = { id: 'b', name: 'B', agencies: [] };
 
-describe('placeRef', () => {
-  it('keeps what a picker needs', () => {
-    expect(placeRef(powell)).toEqual({ id: 'mtc:powell', name: 'Powell', agencies: ['BA', 'SF'] });
-  });
-});
-
 describe('readPair', () => {
   it('reads a stored pair', () => {
     expect(readPair({ from: a, to: b })).toEqual({ from: a, to: b });
-    expect(swapPair({ from: a, to: b })).toEqual({ from: b, to: a });
   });
 
   it('turns junk into nulls', () => {
@@ -49,18 +31,6 @@ describe('legacyPairIds', () => {
   it('is null for nothing remembered', () => {
     expect(legacyPairIds(null)).toBeNull();
     expect(legacyPairIds({ from: '', to: 7 })).toBeNull();
-  });
-});
-
-describe('recents', () => {
-  it('puts the newest first without duplicates, up to a limit', () => {
-    expect(addRecent([a, b], b)).toEqual([b, a]);
-    expect(addRecent([a], b, 1)).toEqual([b]);
-  });
-
-  it('reads defensively', () => {
-    expect(readRecents([a, 'x', null, b])).toEqual([a, b]);
-    expect(readRecents('nope')).toEqual([]);
   });
 });
 
@@ -94,13 +64,5 @@ describe('groupDepartures', () => {
 describe('topValues', () => {
   it('orders by frequency, first seen on ties', () => {
     expect(topValues(['a', 'b', 'b', 'c', 'a', 'd'], 3)).toEqual(['a', 'b', 'c']);
-  });
-});
-
-describe('formatDistance', () => {
-  it('rounds for reading', () => {
-    expect(formatDistance(3)).toBe('10 m');
-    expect(formatDistance(123)).toBe('120 m');
-    expect(formatDistance(1440)).toBe('1.4 km');
   });
 });

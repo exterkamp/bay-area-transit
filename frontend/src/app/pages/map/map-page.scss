@@ -13,47 +13,7 @@
   .on-top .hint { flex-basis: auto; }
 }
 
-.agencies {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-bottom: 0.6rem;
-}
-
-// Phones: one row that scrolls sideways, so the toggles don't push the map down.
-@media (max-width: 40rem) {
-  .agencies {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-    margin-inline: -1rem;
-    padding-inline: 1rem;
-    &::-webkit-scrollbar { display: none; }
-  }
-  .toggle { flex: none; }
-}
-
-.toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-height: 2.25rem;
-  padding: 0.3rem 0.85rem;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--fg-soft);
-  font: inherit;
-  font-size: 0.88rem;
-  font-weight: 600;
-  cursor: pointer;
-
-  &[aria-pressed='true'] {
-    background: var(--fg);
-    border-color: var(--fg);
-    color: var(--bg);
-  }
-}
+.agencies { margin-bottom: 0.6rem; }
 
 .spin {
   width: 0.75rem;

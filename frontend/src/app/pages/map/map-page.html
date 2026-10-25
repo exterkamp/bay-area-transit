@@ -8,7 +8,7 @@
 }
 <div class="controls">
   @if (op.multiAgency() && selected(); as sel) {
-    <div class="agencies" role="group" aria-label="Show on the map">
+    <div class="toggles agencies" role="group" aria-label="Show on the map">
       @for (id of op.agencyIds(); track id) {
         <button type="button" class="toggle" [attr.aria-pressed]="sel.has(id)" (click)="toggle(id)">
           {{ op.agencyName(id) }}
