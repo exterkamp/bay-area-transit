@@ -335,6 +335,7 @@ def import_feed(
         if len(problems.warnings) > 200:
             feed.stats["warnings_truncated"] = len(problems.warnings)
         feed.save()
+        _analyze()
         if activate:
             _activate(feed)
     logger.info(
@@ -347,6 +348,21 @@ def import_feed(
     if keep:
         prune_feeds(operator, keep)
     return ImportResult(feed, created=True)
+
+
+def _analyze():
+    """Refresh planner statistics for the tables an import fills.
+
+    A big feed changes these tables' sizes several times over, and until
+    autovacuum notices, Postgres plans queries on the new feed from the old
+    statistics: right after a regional import, one station list took over
+    30 seconds. Inside the import transaction ANALYZE counts its own inserted
+    rows, so the statistics are ready before the feed goes active.
+    """
+    tables = [m._meta.db_table for m in (StopTime, Trip, Stop, Place, Route, ServiceDate, Service)]
+    tables.append(Place.routes.through._meta.db_table)
+    with connection.cursor() as cursor:
+        cursor.execute("ANALYZE " + ", ".join(f'"{t}"' for t in tables))
 
 
 def _activate(feed):

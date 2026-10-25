@@ -30,6 +30,15 @@ describe('legendEntries', () => {
     expect(legendEntries(routes, new Set(['BA'])).map((e) => e.label)).toEqual(['Red']);
   });
 
+  it('uses long names for ferries and multi-word names', () => {
+    const ferry = { ...route('LSSF', 'GF', 4), long_name: 'Larkspur - San Francisco Ferry' };
+    const airtrain = { ...route('Blue Line', 'SI', 0), long_name: 'SFO AirTrain Blue Line' };
+    expect(legendEntries([ferry, airtrain], new Set(['GF', 'SI'])).map((e) => e.label)).toEqual([
+      'SFO AirTrain Blue Line',
+      'Larkspur - San Francisco Ferry',
+    ]);
+  });
+
   it('collapses a bus network to one entry', () => {
     expect(legendEntries(routes, new Set(['SM'])).map((e) => e.label)).toEqual(['SamTrans buses']);
   });

@@ -161,3 +161,15 @@ def test_stations_run_north_to_south(ctx):
 def test_no_active_feed(operator):
     with pytest.raises(NotFound, match="no active feed"):
         queries.context_for("TT")
+
+
+def test_empty_plan_says_whether_the_trip_runs_on_other_days(ctx):
+    # North to mid is T3, weekdays only. Early Saturday, the window (Saturday
+    # and Sunday) has nothing, but the trip exists.
+    result = queries.plan(ctx, "north", "mid", local(2026, 10, 31, 1))
+    assert result["trips"] == []
+    assert result["served"] is True
+
+
+def test_served_is_only_reported_for_empty_plans(ctx):
+    assert "served" not in queries.plan(ctx, "south", "north", local(*WEDNESDAY, 7))

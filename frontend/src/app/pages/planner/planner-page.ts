@@ -180,10 +180,19 @@ export class PlannerPage {
     return countdown(delayInfo(t.depart).effective, this.clock.now());
   }
 
-  /** The planner only finds direct trips; an empty result usually means a transfer. */
+  protected noTripsTitle(p: PlanResponse): string {
+    return p.served ? 'Nothing in the next day' : 'No direct trips';
+  }
+
+  /** Empty: either the trip runs on other days, or it needs a transfer the planner can't plan. */
   protected noDirectMessage(p: PlanResponse): string {
+    const from = stationName(p.from.name);
+    const to = stationName(p.to.name);
+    if (p.served) {
+      return `Trips from ${from} to ${to} run on other days. Pick "Depart at" and a later date to see them.`;
+    }
     return (
-      `Nothing runs straight from ${stationName(p.from.name)} to ${stationName(p.to.name)}. ` +
+      `Nothing runs straight from ${from} to ${to}. ` +
       "This journey needs a transfer, and the planner doesn't plan those yet. The departure boards at each end show what leaves from where."
     );
   }

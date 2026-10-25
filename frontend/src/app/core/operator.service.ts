@@ -50,6 +50,7 @@ export class OperatorService {
   readonly name = computed(() => {
     const ids = this.agencyIds();
     if (ids.length === 1) return agencyName(ids[0]!, this.operator()?.name);
+    if (ids.length > 4) return `${ids.slice(0, 4).map((id) => agencyName(id)).join(' · ')} + ${ids.length - 4} more`;
     if (ids.length > 1) return ids.map((id) => agencyName(id)).join(' · ');
     return this.operator()?.name ?? this.code();
   });

@@ -84,7 +84,7 @@
         @if (p.trips.length === 0) {
           <app-state
             kind="empty"
-            title="No direct trips"
+            [title]="noTripsTitle(p)"
             [message]="noDirectMessage(p)"
           >
             <div class="empty-actions">

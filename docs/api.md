@@ -215,6 +215,11 @@ than `limit` were found.
   no fare rule matches. Discount categories aren't modelled.
 - `from` and `to` in the response are places, `{"id", "name"}`, even when
   a member stop id was passed.
+- `served` (present only when `trips` is empty) says whether any trip in
+  the timetable runs directly from `from` to `to`, on any day. True means
+  nothing runs in the searched window (about a day) but the trip exists,
+  e.g. a weekday-only ferry asked on a Saturday evening; false means it
+  needs a transfer.
 - Only direct trips are found. A journey that needs a transfer (e.g. San
   Francisco to Gilroy, via the South County connector at San Jose, or
   BART to Caltrain at Millbrae) returns no trips.

@@ -15,7 +15,7 @@ from django.contrib.gis.geos import Point
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.cache import cache
 from django.db import connection
-from django.db.models import Max, Min, Q
+from django.db.models import Exists, Max, Min, OuterRef, Q
 from django.utils import timezone
 
 from transit.gtfs.calendar import active_service_ids
@@ -618,13 +618,31 @@ def plan(ctx: Context, from_id, to_id, at: datetime, limit=None) -> dict:
         if fare is None:
             fare = fare_between(ctx, board.stop, alight.stop, trip.route_id)
 
-    return {
+    result = {
         "from": {"id": origin.place_id, "name": origin.name},
         "to": {"id": destination.place_id, "name": destination.name},
         "at": iso(at, ctx.tz),
         "fare": fare,
         "trips": trips,
     }
+    if not trips:
+        result["served"] = _served_directly(ctx, _boarding_stop_pks(origin), to_pks)
+    return result
+
+
+def _served_directly(ctx, from_pks, to_pks) -> bool:
+    """Whether any trip, on any day, calls at ``from`` and later at ``to``."""
+    later = StopTime.objects.filter(
+        trip_id=OuterRef("trip_id"),
+        stop_id__in=to_pks,
+        stop_sequence__gt=OuterRef("stop_sequence"),
+    ).exclude(drop_off_type=PickupDropOff.NONE)
+    return (
+        StopTime.objects.filter(feed=ctx.feed, stop_id__in=from_pks)
+        .exclude(pickup_type=PickupDropOff.NONE)
+        .filter(Exists(later))
+        .exists()
+    )
 
 
 def departures(ctx: Context, station_id, at: datetime, limit=None) -> dict:

@@ -90,6 +90,11 @@ class TestPlanning:
         assert [t["trip_id"] for t in result["trips"]][:1] == ["BU:2"]
         assert result["trips"][0]["depart"]["stop_id"] == "elm_n"
 
+    def test_a_journey_needing_a_transfer_is_not_served(self, ctx):
+        # Corner is bus only, far is rail only.
+        result = queries.plan(ctx, "corner", "far", local(*WEDNESDAY, 8))
+        assert (result["trips"], result["served"]) == ([], False)
+
     def test_same_place_twice_is_a_bad_request(self, ctx):
         with pytest.raises(BadRequest):
             queries.plan(ctx, "elm_n", "elm_s", local(*WEDNESDAY, 8))

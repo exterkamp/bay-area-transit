@@ -200,6 +200,11 @@ export interface PlanResponse {
   at: IsoDateTime;
   fare: Fare | null;
   trips: PlanTrip[];
+  /**
+   * Only when trips is empty: whether any trip runs directly between the two
+   * on some day. True = nothing in the next day or so; false = needs a transfer.
+   */
+  served?: boolean;
 }
 
 // --- /stations/{id}/departures ---------------------------------------------

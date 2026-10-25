@@ -14,6 +14,16 @@ export interface LegendEntry {
  * bridges) none, and a line that's split into one route per direction
  * (BART's Red-N and Red-S) shows once.
  */
+/**
+ * Ferry codes ("LSSF") and generic names ("Blue Line", the AirTrain's, next
+ * to BART's Blue) say little alone; their long names say where they go.
+ */
+function lineName(r: Route): string {
+  const short = r.short_name || r.id;
+  if (r.long_name && (r.type === 4 || short.includes(' '))) return r.long_name;
+  return short.replace(/-[NS]$/, '');
+}
+
 export function legendEntries(
   routes: readonly Route[],
   agencies: ReadonlySet<AgencyId>,
@@ -28,7 +38,7 @@ export function legendEntries(
   for (const r of sorted) {
     const bus = r.type === 3;
     if (bus && hasRail.has(r.agency)) continue;
-    const label = bus ? `${names(r.agency)} buses` : (r.short_name || r.long_name || r.id).replace(/-[NS]$/, '');
+    const label = bus ? `${names(r.agency)} buses` : lineName(r);
     const key = bus ? `bus|${r.agency}` : `${r.agency}|${label}|${r.color}`;
     if (seen.has(key)) continue;
     seen.add(key);

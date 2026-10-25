@@ -8,10 +8,15 @@ const SHORT_NAMES: Record<AgencyId, string> = {
   BA: 'BART',
   SM: 'SamTrans',
   CT: 'Caltrain',
+  SI: 'AirTrain',
+  SB: 'SF Bay Ferry',
+  GF: 'Golden Gate Ferry',
+  AF: 'Angel Island Ferry',
+  TF: 'Treasure Island Ferry',
 };
 
 /** The order agencies are listed in, wherever several appear together. */
-export const AGENCY_ORDER: readonly AgencyId[] = ['SF', 'BA', 'SM', 'CT'];
+export const AGENCY_ORDER: readonly AgencyId[] = ['SF', 'BA', 'SM', 'CT', 'SI', 'SB', 'GF', 'AF', 'TF'];
 
 export function agencyName(id: AgencyId, fullName?: string): string {
   return SHORT_NAMES[id] ?? fullName ?? id;

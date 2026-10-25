@@ -9,7 +9,8 @@ describe('agencyName', () => {
   });
 
   it('orders the four we care about first', () => {
-    expect(['CT', 'ZZ', 'SF', 'BA', 'SM'].sort(compareAgencies)).toEqual(['SF', 'BA', 'SM', 'CT', 'ZZ']);
+    expect(['CT', 'ZZ', 'SB', 'SF', 'BA', 'SM'].sort(compareAgencies)).toEqual(['SF', 'BA', 'SM', 'CT', 'SB', 'ZZ']);
+    expect(agencyName('SI', 'SFO Airport')).toBe('AirTrain');
   });
 });
 

@@ -34,7 +34,8 @@ const DEFAULT_CENTER: L.LatLngExpression = [37.6, -122.35];
 const DEFAULT_ZOOM = 10;
 /** Street stops (as opposed to stations) only show from this zoom in. */
 const STOPS_ZOOM = 14;
-const RAIL_TYPES = new Set([0, 1, 2, 5, 12]);
+/** Shown by default: rail of every kind, and ferries. Bus networks are opt-in. */
+const DEFAULT_TYPES = new Set([0, 1, 2, 4, 5, 12]);
 
 /** One agency's lines and places, fetched once per visit and kept. */
 interface AgencyLayers {
@@ -163,8 +164,8 @@ export class MapPage {
       const ids = new Set(agencies.map((a) => a.id));
       const stored = readJson<unknown>(STORAGE_KEYS.mapAgencies(this.op.code()), null);
       const remembered = Array.isArray(stored) ? stored.filter((id): id is string => ids.has(id)) : [];
-      const rail = agencies.filter((a) => a.route_types.some((t) => RAIL_TYPES.has(t))).map((a) => a.id);
-      this.selected.set(new Set(remembered.length ? remembered : rail.length ? rail : [...ids]));
+      const shown = agencies.filter((a) => a.route_types.some((t) => DEFAULT_TYPES.has(t))).map((a) => a.id);
+      this.selected.set(new Set(remembered.length ? remembered : shown.length ? shown : [...ids]));
     });
     effect(() => this.syncLayers(this.map(), this.selected()));
     effect(() => this.drawVehicles(this.map(), this.vehicles.data()));
