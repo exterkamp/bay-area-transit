@@ -1,9 +1,50 @@
 # bay-area-transit
 
-Muni Metro, BART, SamTrans and Caltrain schedules with live predictions,
-built on the [511.org open data](https://511.org/open-data/transit)
-regional GTFS and GTFS-realtime feeds. Search any station or stop, plan
-direct trips, see departure boards and live vehicles on a map.
+Bay Area transit schedules with live predictions, built on the
+[511.org open data](https://511.org/open-data/transit) regional GTFS and
+GTFS-realtime feeds: Muni Metro and cable cars, BART, SamTrans, Caltrain,
+SFO AirTrain, SF Bay Ferry, Golden Gate Ferry, and the Angel Island and
+Treasure Island ferries.
+
+<table>
+  <tr>
+    <td width="25%"><img src="docs/screenshots/planner.png" alt="Trip planner: Powell to Embarcadero, Muni and BART trips with live times"></td>
+    <td width="25%"><img src="docs/screenshots/search.png" alt="Place search: typing millbr lists Millbrae BART with its agencies, then SamTrans stops"></td>
+    <td width="25%"><img src="docs/screenshots/board.png" alt="Departure board for Millbrae BART in dark mode, grouped by agency and direction"></td>
+    <td width="25%"><img src="docs/screenshots/trip.png" alt="A BART trip with its estimated position, on the way to Glen Park"></td>
+  </tr>
+  <tr>
+    <td>Plan a trip</td>
+    <td>Search stations and stops</td>
+    <td>Departure boards</td>
+    <td>Trip detail</td>
+  </tr>
+</table>
+
+![Map of San Francisco with Muni, BART and Caltrain lines and live vehicles, agency toggles and an on-top switch](docs/screenshots/map.png)
+
+## What it does
+
+- **Search** any station or stop by name, forgivingly ("mllbrae" finds
+  Millbrae), or near you. Results show which agencies stop there, with
+  route badges for street stops.
+- **Plan** direct trips across agencies, with live departure and arrival
+  times, delays and cancellations. Places shared by several agencies
+  (Millbrae, Powell, the Ferry Building) plan with all of them. A journey
+  that needs a transfer, or runs only on other days, says so.
+- **Departure boards** for any place, grouped by agency and direction:
+  Northbound/Southbound, Inbound/Outbound, or toward the main destinations.
+- **Trip detail** with every stop's scheduled and predicted times, and
+  where the vehicle is now.
+- **Map** of lines, stations and live vehicles, with a toggle per agency
+  and a switch for what's on top (vehicles, stops or lines) so anything can
+  be tapped. Agencies that publish no GPS (BART) get positions estimated
+  from their live predictions, drawn faded.
+- **Service alerts**, collapsed into one bar when there are several,
+  labeled with the agencies they affect.
+- Works on phones, in light and dark mode.
+
+## How it's built
 
 - **backend/**: Django 5.2 + PostGIS. Imports static GTFS feeds into a
   constrained schema, polls GTFS-realtime, and serves a read-only JSON API
@@ -34,7 +75,7 @@ open http://127.0.0.1:8086
 ```
 
 On first start the worker downloads 511's regional feed (about 60 MB) and
-imports the four agencies (about a minute), then starts polling realtime.
+imports the selected agencies (about a minute), then starts polling realtime.
 `?op=CT` on any URL shows a single agency's own feed instead, if
 `TRANSIT_OPERATORS` imports it.
 
@@ -79,10 +120,14 @@ operator at a time. Static feeds are checked once a day and only re-imported
 when the archive changes.
 
 `RG` is 511's regional feed: one static archive and one realtime request per
-kind cover every agency. `TRANSIT_RG_AGENCIES` (default `SF:0,BA,SM,CT`, so
-Muni rail, BART, SamTrans and Caltrain) picks what gets imported, and the
-poller drops realtime about anything the import left out. So realtime for all
-four costs the same 46 requests/hour as Caltrain alone.
+kind cover every agency. `TRANSIT_RG_AGENCIES` picks what gets imported: a
+comma-separated list of agency ids, each optionally limited to GTFS route
+types. The default, `SF:0+5,BA,SM,CT,SI:0,SB,GF,AF,TF`, is Muni light rail
+and cable cars (no buses), BART, SamTrans, Caltrain, the AirTrain (not SFO's
+shuttle buses) and the four ferry operators. The poller drops realtime about
+anything the import left out, so realtime for all of them costs the same 46
+requests/hour as one agency. 511's operator list has about 40 more, from AC
+Transit to SMART; adding one is a matter of listing its id.
 
 ## Data model
 
@@ -100,6 +145,11 @@ platforms, or same-named stops within 300 m (both sides of a street). They
 are what riders search for (`places?q=`, trigram-matched), plan between and
 see boards for, so picking the wrong side of the street still finds trips.
 
-Not modelled: frequencies.txt, transfers.txt, fare products beyond the base
-fare, and journeys that need a transfer (San Francisco to Gilroy changes
-at San Jose for the South County connector).
+Vehicles without GPS are **estimated** from their trip's predicted stop
+times: at the platform between predicted arrival and departure, else along
+the route's shape in proportion to the time elapsed between stops.
+`/vehicles` marks each one `"source": "gps"` or `"estimated"`.
+
+Not modelled yet: fares from the regional feed (it uses GTFS Fares v2),
+frequencies.txt, transfers.txt, and journeys that need a transfer (Powell
+to Hillsdale changes from BART to Caltrain at Millbrae).
