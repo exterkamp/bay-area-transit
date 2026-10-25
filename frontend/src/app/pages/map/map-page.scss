@@ -115,6 +115,8 @@
 }
 
 .below { margin-top: 0.6rem; }
+// Phones have the footer; large screens have no footer and show it here.
+.feed-note { display: none; }
 .status { margin: 0 0 0.5rem; }
 .bad { color: var(--bad); }
 
@@ -124,16 +126,121 @@
   margin: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem 0.9rem;
+  gap: 0.2rem 0.9rem;
   font-size: 0.82rem;
   color: var(--fg-soft);
 
-  li { display: inline-flex; align-items: center; gap: 0.4rem; }
+  li { display: inline-flex; }
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 1.6rem;
+    padding: 0 0.35rem;
+    margin-inline: -0.35rem;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+    &:hover { background: var(--surface-2); }
+    &[aria-pressed='true'] { background: var(--surface-2); color: var(--fg); font-weight: 600; }
+  }
+
+  // One line picked: the others recede, like their lines on the map.
+  &.picking button[aria-pressed='false'] { opacity: 0.45; }
 }
 
 .swatch {
+  flex: none;
   width: 1.1rem;
   height: 0.35rem;
   border-radius: 999px;
   box-shadow: 0 0 0 1px rgb(0 0 0 / 0.35);
+}
+
+// Large screens: the map fills the window under the header, edge to edge,
+// with the controls and the legend floating over it in two small panels.
+@media (min-width: 64rem) {
+  :host {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .map-wrap {
+    flex: 1;
+    min-height: 0;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .map { height: 100%; min-height: 0; max-height: none; }
+
+  .controls,
+  .below {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    // Clear of the zoom buttons on the left and the attribution on the right.
+    width: min(62rem, 100% - 8rem);
+    z-index: 1;
+    margin: 0;
+    padding: 0.6rem 0.8rem;
+    background: color-mix(in srgb, var(--surface) 90%, transparent);
+    backdrop-filter: saturate(1.4) blur(10px);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+
+  // The toggles and the on-top switch share rows when they fit.
+  .controls {
+    top: 0.75rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 1rem;
+    .agencies, .on-top { margin-bottom: 0; }
+    .agencies { flex: 1 1 0; min-width: 20rem; }
+    .on-top { flex: none; }
+    .hint { min-height: 0; }
+  }
+
+  // The legend scrolls when it's long; the status and the note stay put.
+  .below {
+    bottom: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    max-height: min(14rem, 32%);
+    > * { flex: none; }
+    > p { margin: 0 0 0.4rem; }
+    > :last-child { margin-bottom: 0; }
+  }
+
+  .below > .legend {
+    flex: 0 1 auto;
+    min-height: 2rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    margin-bottom: 0.4rem;
+  }
+
+  .feed-note {
+    display: block;
+    padding-top: 0.4rem;
+    border-top: 1px solid var(--line);
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+
+  // Nothing to float: an empty panel would be a stray box.
+  .controls:empty { display: none; }
 }

@@ -331,3 +331,8 @@ select.control {
     letter-spacing: -0.02em;
   }
 }
+
+// A full-bleed page starts right under the alerts, so they need a gap below.
+@media (min-width: 64rem) {
+  .screen.full .alerts { margin-bottom: 0.75rem; }
+}
