@@ -287,4 +287,6 @@ export interface Alert {
   active_periods: ActivePeriod[];
   route_ids: string[];
   stop_ids: string[];
+  /** The agencies it's about (named, or behind its routes and stops); may be empty. */
+  agencies: AgencyId[];
 }

@@ -148,6 +148,9 @@ class Alert(models.Model):
     effect = models.CharField(max_length=64, blank=True)
     # [[start_epoch|null, end_epoch|null], ...]; empty means always active.
     active_periods = models.JSONField(default=list, blank=True)
+    # The agencies it's about, worked out when polled: named by an informed
+    # entity, or behind its routes and stops (see realtime.poller).
+    agencies = models.JSONField(default=list, blank=True)
     route_ids = models.JSONField(default=list, blank=True)
     stop_ids = models.JSONField(default=list, blank=True)
     trip_ids = models.JSONField(default=list, blank=True)

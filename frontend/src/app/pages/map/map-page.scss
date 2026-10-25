@@ -20,6 +20,19 @@
   margin-bottom: 0.6rem;
 }
 
+// Phones: one row that scrolls sideways, so the toggles don't push the map down.
+@media (max-width: 40rem) {
+  .agencies {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+    &::-webkit-scrollbar { display: none; }
+  }
+  .toggle { flex: none; }
+}
+
 .toggle {
   display: inline-flex;
   align-items: center;

@@ -755,6 +755,7 @@ def fare_between(ctx, board: Stop, alight: Stop, route_pk) -> dict | None:
 
 # --- realtime views -----------------------------------------------------------------
 
+
 _VEHICLE_STATUS = {
     VehicleStatus.INCOMING_AT: "incoming_at",
     VehicleStatus.STOPPED_AT: "stopped_at",

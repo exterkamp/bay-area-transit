@@ -224,11 +224,13 @@ def vehicles(request, code):
 def alerts(request, code):
     ctx = context_for(code)
     now = time.time()
-    result = []
+    active = []
     for alert in Alert.objects.filter(operator=ctx.operator).order_by("alert_id"):
         periods = alert.active_periods or [[None, None]]
-        if not any((s is None or s <= now) and (e is None or now < e) for s, e in periods):
-            continue
+        if any((s is None or s <= now) and (e is None or now < e) for s, e in periods):
+            active.append(alert)
+    result = []
+    for alert in active:
         result.append(
             {
                 "id": alert.alert_id,
@@ -246,6 +248,7 @@ def alerts(request, code):
                 ],
                 "route_ids": alert.route_ids,
                 "stop_ids": alert.stop_ids,
+                "agencies": alert.agencies,
             }
         )
     return Response(result)

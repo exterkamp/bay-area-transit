@@ -129,4 +129,5 @@ export const alert: Alert = {
   active_periods: [{ start: '2026-10-24T07:30:00-07:00', end: null }],
   route_ids: ['Local Weekday'],
   stop_ids: ['70111'],
+  agencies: ['CT'],
 };

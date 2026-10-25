@@ -213,3 +213,27 @@ class TestApi:
         assert [(r["id"], r["agency"]) for r in routes] == [("BU:1", "BU")]
         operators = client.get("/api/v1/operators").json()
         assert operators[0]["agencies"] == ["BU", "RA", "XX"]
+
+
+def test_alerts_name_their_agencies(ctx, client):
+    from google.transit import gtfs_realtime_pb2 as rt
+
+    from transit.realtime.poller import store
+
+    msg = rt.FeedMessage()
+    msg.header.gtfs_realtime_version = "2.0"
+    msg.entity.add(id="named").alert.informed_entity.add(agency_id="BU")
+    msg.entity.add(id="route").alert.informed_entity.add(route_id="RA:L")
+    # A platform counts its own routes; a station counts all of its.
+    msg.entity.add(id="stop").alert.informed_entity.add(stop_id="hub_bay")
+    msg.entity.add(id="station").alert.informed_entity.add(stop_id="hub")
+    msg.entity.add(id="unknown").alert.informed_entity.add(agency_id="ZZ")
+    store(ctx.operator, "alerts", msg)
+    alerts = {a["id"]: a["agencies"] for a in client.get("/api/v1/operators/TT/alerts").json()}
+    assert alerts == {
+        "named": ["BU"],
+        "route": ["RA"],
+        "stop": ["BU"],
+        "station": ["BU", "RA"],
+        "unknown": [],
+    }

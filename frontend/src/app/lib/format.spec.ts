@@ -1,5 +1,6 @@
 import { alert } from '../../testing/fixtures';
 import {
+  alertAgencies,
   escapeHtml,
   fareLabel,
   formatFare,
@@ -12,6 +13,14 @@ import {
   stopsText,
   visibleAlerts,
 } from './format';
+
+describe('alertAgencies', () => {
+  it('names each agency once, in agency order', () => {
+    const a = (agencies: string[]) => ({ ...alert, agencies });
+    expect(alertAgencies([a(['SB']), a(['SF', 'SB']), a([])], (id) => id.toLowerCase())).toBe('sf, sb');
+    expect(alertAgencies([], (id) => id)).toBe('');
+  });
+});
 
 describe('format helpers', () => {
   it('safeColor only passes #rrggbb', () => {

@@ -339,9 +339,13 @@ Alerts active now.
     "effect": "significant_delays",
     "active_periods": [{"start": "2026-10-24T07:30:00-07:00", "end": null}],
     "route_ids": ["Local Weekday"],
-    "stop_ids": ["70111"]
+    "stop_ids": ["70111"],
+    "agencies": ["CT"]
   }
 ]
 ```
 
 `cause`/`effect` are the GTFS-realtime enum names, lowercased.
+`agencies` are the agencies the alert is about: those it names, plus the
+agencies of its routes and of the routes serving its stops, sorted. Empty
+when none of those are in the static feed.

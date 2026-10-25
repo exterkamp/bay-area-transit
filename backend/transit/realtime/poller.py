@@ -15,12 +15,14 @@ from transit.gtfs.times import parse_gtfs_date
 from transit.models import (
     Agency,
     Alert,
+    LocationType,
     Operator,
     RealtimeFetch,
     RealtimeKind,
     Route,
     Stop,
     StopRelationship,
+    StopTime,
     StopTimeUpdate,
     Trip,
     TripRelationship,
@@ -263,6 +265,7 @@ def _store_vehicles(operator, message, scope):
 def _store_alerts(operator, message, scope):
     Alert.objects.filter(operator=operator).delete()
     alerts = {}
+    named = {}
     for entity in message.entity:
         if entity.is_deleted or not _has(entity, "alert"):
             continue
@@ -270,6 +273,7 @@ def _store_alerts(operator, message, scope):
         informed = a.informed_entity
         if scope and not any(scope.informs(e) for e in informed):
             continue
+        named[entity.id] = {e.agency_id for e in informed if e.agency_id}
         alerts[entity.id] = Alert(
             operator=operator,
             alert_id=entity.id,
@@ -285,8 +289,50 @@ def _store_alerts(operator, message, scope):
                 {e.trip.trip_id for e in informed if _has(e, "trip") and e.trip.trip_id}
             ),
         )
+    if operator.active_feed:
+        _set_agencies(operator.active_feed, alerts, named)
     Alert.objects.bulk_create(alerts.values())
     return len(alerts)
+
+
+def _set_agencies(feed, alerts, named):
+    """Fill each alert's agencies: named, or behind its routes and stops.
+
+    Done once per poll rather than per request: alerts can list dozens of
+    stops, and finding the routes that call at them reads stop times.
+    """
+    route_ids = {r for a in alerts.values() for r in a.route_ids}
+    stop_ids = {s for a in alerts.values() for s in a.stop_ids}
+    of_route = dict(
+        Route.objects.filter(feed=feed, route_id__in=route_ids).values_list(
+            "route_id", "agency__agency_id"
+        )
+    )
+    # A platform counts the routes that call at it, not its whole station: a
+    # Muni platform at Embarcadero isn't news for BART. A station id named
+    # directly counts every route at the station.
+    stops = dict(Stop.objects.filter(feed=feed, stop_id__in=stop_ids).values_list("pk", "stop_id"))
+    of_stop = {}
+    for stop_pk, agency_id in (
+        StopTime.objects.filter(stop_id__in=stops)
+        .values_list("stop_id", "trip__route__agency__agency_id")
+        .distinct()
+    ):
+        of_stop.setdefault(stops[stop_pk], set()).add(agency_id)
+    for stop_id, agency_id in Stop.objects.filter(
+        feed=feed,
+        stop_id__in=stop_ids - of_stop.keys(),
+        location_type=LocationType.STATION,
+    ).values_list("stop_id", "place__routes__agency__agency_id"):
+        if agency_id:
+            of_stop.setdefault(stop_id, set()).add(agency_id)
+    known = set(Agency.objects.filter(feed=feed).values_list("agency_id", flat=True))
+    for key, alert in alerts.items():
+        found = named[key] & known
+        found |= {of_route[r] for r in alert.route_ids if r in of_route}
+        for s in alert.stop_ids:
+            found |= of_stop.get(s, set())
+        alert.agencies = sorted(found)
 
 
 STORERS = {

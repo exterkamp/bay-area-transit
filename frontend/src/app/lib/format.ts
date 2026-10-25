@@ -1,6 +1,7 @@
 // Small display helpers. Framework-free.
 
-import type { Alert, Fare } from '../api/models';
+import type { AgencyId, Alert, Fare } from '../api/models';
+import { compareAgencies } from './agencies';
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
@@ -91,4 +92,10 @@ export function safeHttpUrl(u: string | null | undefined): string {
 export function normalizeOperator(v: string | null | undefined, fallback = 'CT'): string {
   const s = (v ?? '').trim().toUpperCase();
   return /^[A-Z0-9]{1,8}$/.test(s) ? s : fallback;
+}
+
+/** "Muni, SF Bay Ferry": every agency a set of alerts is about, in agency order. */
+export function alertAgencies(alerts: readonly Alert[], name: (id: AgencyId) => string): string {
+  const ids = [...new Set(alerts.flatMap((a) => a.agencies ?? []))].sort(compareAgencies);
+  return ids.map(name).join(', ');
 }

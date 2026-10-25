@@ -29,6 +29,14 @@ export class AlertsService {
     });
   }
 
+  /** With several alerts the banner is one bar until opened; this session only. */
+  readonly expanded = signal(false);
+
+  dismissAll(): void {
+    this.setDismissed([...new Set([...this.dismissed(), ...this.visible().map((a) => a.id)])]);
+    this.expanded.set(false);
+  }
+
   dismiss(id: string): void {
     if (!this.dismissed().includes(id)) this.setDismissed([...this.dismissed(), id]);
   }
