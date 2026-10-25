@@ -42,4 +42,12 @@ describe('legendEntries', () => {
   it('collapses a bus network to one entry', () => {
     expect(legendEntries(routes, new Set(['SM'])).map((e) => e.label)).toEqual(['SamTrans buses']);
   });
+
+  it('lists the routes each entry stands for', () => {
+    const entries = legendEntries(routes, new Set(['BA', 'SM']));
+    expect(entries.map((e) => [e.label, e.routes])).toEqual([
+      ['Red', ['Red-S', 'Red-N']],
+      ['SamTrans buses', ['ECR', '292']],
+    ]);
+  });
 });

@@ -1,6 +1,10 @@
-:host {
+:host { display: block; }
+
+// Header, alerts and page fill at least the window; the footer is below.
+.screen {
   display: flex;
   flex-direction: column;
+  min-height: 100vh;
   min-height: 100dvh;
 }
 
@@ -67,13 +71,27 @@
 
 main { flex: 1; width: 100%; padding-block: 1rem 2rem; }
 
+// Large screens: a full-bleed page fills the window exactly, edge to edge,
+// with no footer below.
+@media (min-width: 64rem) {
+  .screen.full {
+    height: 100vh;
+    height: 100dvh;
+    main {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      max-width: none;
+      padding: 0;
+    }
+  }
+  // No scrolling past it: the page shows the footer's note itself.
+  .footer.full { display: none; }
+}
+
 .footer {
   padding-block: 1.25rem calc(1.5rem + env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: 0.8rem;
-  p { margin: 0.2rem 0; }
-  .warn { color: var(--warn); font-weight: 600; }
-  .credits { opacity: 0.8; }
-  .sep { margin-inline: 0.25rem; }
 }

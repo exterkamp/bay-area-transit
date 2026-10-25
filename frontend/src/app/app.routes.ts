@@ -20,6 +20,7 @@ export const routes: Routes = [
   {
     path: 'map',
     title: 'Map · Bay Area Transit',
+    data: { fullBleed: true },
     loadComponent: () => import('./pages/map/map-page').then((m) => m.MapPage),
   },
   {

@@ -24,10 +24,11 @@ import { OperatorService } from '../../core/operator.service';
 import { polled } from '../../core/polled';
 import { tripLabel, vehicleKey } from '../../lib/agencies';
 import { escapeHtml, safeColor, stationName } from '../../lib/format';
-import { legendEntries } from '../../lib/legend';
+import { LegendEntry, legendEntries } from '../../lib/legend';
 import { STORAGE_KEYS, readJson, writeJson } from '../../lib/storage';
 import { formatAge, formatInstant } from '../../lib/time';
 import { StateView } from '../../shared/state';
+import { FeedNote } from '../../shell/feed-note';
 
 /** San Francisco and the Peninsula, for before anything has loaded. */
 const DEFAULT_CENTER: L.LatLngExpression = [37.6, -122.35];
@@ -54,6 +55,12 @@ const PANE_Z: Record<MapTop, { routes: string; stations: string }> = {
 const DEFAULT_TYPES = new Set([0, 1, 2, 4, 5, 12]);
 
 /** One agency's lines and places, fetched once per visit and kept. */
+/** Routes standing out from the rest: a tapped line, or a legend pick (its key). */
+interface Highlight {
+  routes: ReadonlySet<string>;
+  legend?: string;
+}
+
 interface AgencyLayers {
   shapes: L.LayerGroup;
   casing: L.GeoJSON;
@@ -71,7 +78,7 @@ const VEHICLE_STATUS: Record<string, string> = {
 @Component({
   selector: 'app-map-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [StateView],
+  imports: [StateView, FeedNote],
   templateUrl: './map-page.html',
   styleUrl: './map-page.scss',
 })
@@ -144,11 +151,14 @@ export class MapPage {
   /** Stops draw on one canvas in their own pane; a wide tolerance makes small dots easy to tap. */
   private readonly renderer = L.canvas({ padding: 0.5, pane: 'stations', tolerance: 6 });
   protected readonly top = signal<MapTop>(this.storedTop());
-  private readonly highlighted = signal<string | null>(null);
+  private readonly highlighted = signal<Highlight | null>(null);
+  protected readonly legendPicked = computed(() => this.highlighted()?.legend ?? null);
   private readonly vehicleLayer = L.layerGroup();
   private readonly vehicleMarkers = new Map<string, L.Marker>();
   protected fitted = false;
   private focusedVehicle = '';
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly resizes = new ResizeObserver(() => this.map()?.invalidateSize());
 
   protected readonly safeColor = safeColor;
 
@@ -158,6 +168,8 @@ export class MapPage {
         center: DEFAULT_CENTER,
         zoom: DEFAULT_ZOOM,
         zoomControl: true,
+        // Fitting between the floating panels shouldn't round down a whole level.
+        zoomSnap: 0.25,
         attributionControl: false,
       });
       L.control.attribution({ prefix: false }).addTo(m);
@@ -172,13 +184,17 @@ export class MapPage {
       m.on('zoomend', () => {
         for (const layers of this.layers.values()) this.updateStops(m, layers);
       });
-      m.on('popupclose', () => this.highlighted.set(null));
+      m.on('popupclose', () => this.dropTapHighlight());
       this.map.set(m);
-      // The container may have been sized after Leaflet measured it.
-      setTimeout(() => m.invalidateSize(), 0);
+      // The container is resized by the layout too (alerts opening, a
+      // breakpoint), not just the window, which is all Leaflet watches.
+      this.resizes.observe(this.mapEl().nativeElement);
     });
 
-    inject(DestroyRef).onDestroy(() => this.map()?.remove());
+    inject(DestroyRef).onDestroy(() => {
+      this.resizes.disconnect();
+      this.map()?.remove();
+    });
 
     // Start with the rail agencies, or whatever was shown last time.
     effect(() => {
@@ -193,6 +209,11 @@ export class MapPage {
     effect(() => this.syncLayers(this.map(), this.selected()));
     effect(() => this.applyTop(this.map(), this.top()));
     effect(() => this.applyHighlight(this.highlighted()));
+    // A picked line whose agency was turned off is gone from the legend.
+    effect(() => {
+      const key = this.legendPicked();
+      if (key && !this.legend().some((e) => e.key === key)) this.highlighted.set(null);
+    });
     effect(() => this.drawVehicles(this.map(), this.vehicles.data()));
     effect(() => this.focusVehicle(this.map(), this.vehicles.data(), this.vehicle()));
   }
@@ -226,7 +247,7 @@ export class MapPage {
     m.getContainer().dataset['top'] = top;
     if (top !== 'lines') {
       m.closePopup();
-      this.highlighted.set(null);
+      this.dropTapHighlight();
     }
     for (const layers of this.layers.values()) {
       this.sizeMarkers(layers);
@@ -240,23 +261,44 @@ export class MapPage {
     layers.stops.eachLayer((l) => (l as L.CircleMarker).setRadius(RADIUS.stop[big]));
   }
 
-  /** Fade every line but the tapped route's. */
-  private applyHighlight(routeId: string | null): void {
+  /** Fade every line and vehicle but the highlighted routes'. */
+  private applyHighlight(h: Highlight | null): void {
     for (const layers of this.layers.values()) {
       layers.lines.eachLayer((l) => {
         const id = ((l as L.Path & { feature?: GeoJSON.Feature }).feature?.properties as { route_id?: string } | undefined)
           ?.route_id;
-        (l as L.Path).setStyle({ opacity: !routeId || id === routeId ? 0.95 : 0.15 });
+        (l as L.Path).setStyle({ opacity: !h || (id && h.routes.has(id)) ? 0.95 : 0.15 });
       });
-      layers.casing.setStyle({ opacity: routeId ? 0.15 : 0.5 });
+      layers.casing.setStyle({ opacity: h ? 0.15 : 0.5 });
     }
+    for (const v of untracked(this.vehicles.data) ?? []) {
+      const marker = this.vehicleMarkers.get(vehicleKey(v));
+      if (marker) this.fadeVehicle(marker, v, h);
+    }
+  }
+
+  private fadeVehicle(marker: L.Marker, v: Vehicle, h: Highlight | null): void {
+    const lit = !h || (!!v.route && h.routes.has(v.route.id));
+    marker.setOpacity(lit ? 1 : 0.2);
+    marker.setZIndexOffset(h && lit ? 2000 : 1000);
+  }
+
+  /** A tapped line's highlight lasts as long as its popup; a legend pick until unpicked. */
+  private dropTapHighlight(): void {
+    if (!untracked(this.highlighted)?.legend) this.highlighted.set(null);
+  }
+
+  protected pickLegend(e: LegendEntry): void {
+    const again = this.legendPicked() === e.key;
+    this.map()?.closePopup();
+    this.highlighted.set(again ? null : { routes: new Set(e.routes), legend: e.key });
   }
 
   private lineClicked(e: L.LeafletMouseEvent, routeId: string): void {
     const route = this.routes.data()?.find((r) => r.id === routeId);
     const title = route ? route.long_name || route.short_name : routeId;
     const sub = route ? `${this.op.agencyName(route.agency)}${route.long_name && route.short_name ? ` · ${route.short_name}` : ''}` : '';
-    this.highlighted.set(routeId);
+    this.highlighted.set({ routes: new Set([routeId]) });
     L.popup({ autoPan: false }).setLatLng(e.latlng).setContent(this.popup(title, sub, '', '')).openOn(this.map()!);
   }
 
@@ -352,8 +394,8 @@ export class MapPage {
       },
     });
     const shapes = L.layerGroup([casing, lines]);
-    const routeId = untracked(this.highlighted);
-    if (routeId) queueMicrotask(() => this.applyHighlight(routeId));
+    const h = untracked(this.highlighted);
+    if (h) queueMicrotask(() => this.applyHighlight(h));
     return { shapes, casing, lines };
   }
 
@@ -390,13 +432,30 @@ export class MapPage {
       if (m.hasLayer(layers.stations)) bounds.extend(layers.stations.getBounds());
     }
     if (bounds.isValid()) {
-      m.fitBounds(bounds, { padding: [24, 24] });
+      m.fitBounds(bounds, this.fitPadding());
       this.fitted = true;
     }
   }
 
+  /** Room around the network, clear of the panels floating over the map on large screens. */
+  private fitPadding(): L.FitBoundsOptions {
+    const host = this.host.nativeElement;
+    const map = this.mapEl().nativeElement.getBoundingClientRect();
+    const panel = (selector: string) => {
+      const el = host.querySelector<HTMLElement>(selector);
+      return el && getComputedStyle(el).position === 'absolute' ? el.getBoundingClientRect() : null;
+    };
+    const top = panel('.controls');
+    const bottom = panel('.below');
+    return {
+      paddingTopLeft: [24, top ? top.bottom - map.top + 12 : 24],
+      paddingBottomRight: [24, bottom ? map.bottom - bottom.top + 12 : 24],
+    };
+  }
+
   private drawVehicles(m: L.Map | null, list: Vehicle[] | undefined): void {
     if (!m || !list) return;
+    const h = untracked(this.highlighted);
     const seen = new Set<string>();
     for (const v of list) {
       const key = vehicleKey(v);
@@ -413,6 +472,7 @@ export class MapPage {
         this.vehicleMarkers.set(key, marker);
       }
       marker.options.title = this.vehicleTitle(v);
+      this.fadeVehicle(marker, v, h);
     }
     for (const [id, marker] of this.vehicleMarkers) {
       if (!seen.has(id)) {

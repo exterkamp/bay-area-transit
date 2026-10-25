@@ -21,7 +21,7 @@ Treasure Island ferries.
   </tr>
 </table>
 
-![Map of San Francisco with Muni, BART and Caltrain lines and live vehicles, agency toggles and an on-top switch](docs/screenshots/map.png)
+![Full-window map of the Bay Area on a large screen, BART's Red line picked in the legend and everything else faded, with agency toggles above and the legend below](docs/screenshots/map.png)
 
 ## What it does
 
@@ -38,11 +38,13 @@ Treasure Island ferries.
   where the vehicle is now.
 - **Map** of lines, stations and live vehicles, with a toggle per agency
   and a switch for what's on top (vehicles, stops or lines) so anything can
-  be tapped. Agencies that publish no GPS (BART) get positions estimated
-  from their live predictions, drawn faded.
+  be tapped. Pick a line in the legend to fade everything else. Agencies
+  that publish no GPS (BART) get positions estimated from their live
+  predictions, drawn faded. On large screens the map fills the window,
+  with the controls floating over it.
 - **Service alerts**, collapsed into one bar when there are several,
   labeled with the agencies they affect.
-- Works on phones, in light and dark mode.
+- Works on phones and large screens, in light and dark mode.
 
 ## How it's built
 

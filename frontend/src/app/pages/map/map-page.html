@@ -6,36 +6,38 @@
     message="The {{ op.name() }} timetable hasn't been imported. Check back soon."
   />
 }
-@if (op.multiAgency() && selected(); as sel) {
-  <div class="agencies" role="group" aria-label="Show on the map">
-    @for (id of op.agencyIds(); track id) {
-      <button type="button" class="toggle" [attr.aria-pressed]="sel.has(id)" (click)="toggle(id)">
-        {{ op.agencyName(id) }}
-        @if (loadingAgencies().has(id)) {
-          <span class="spin" aria-label="loading"></span>
-        }
-      </button>
-    }
-  </div>
-}
-@if (!op.noFeed()) {
-  <div class="on-top">
-    <span class="small muted" id="top-label">On top</span>
-    <div class="segmented" role="group" aria-labelledby="top-label">
-      @for (t of tops; track t) {
-        <button type="button" [attr.aria-pressed]="top() === t" (click)="setTop(t)">
-          {{ t === 'vehicles' ? 'Vehicles' : t === 'stops' ? 'Stops' : 'Lines' }}
+<div class="controls">
+  @if (op.multiAgency() && selected(); as sel) {
+    <div class="agencies" role="group" aria-label="Show on the map">
+      @for (id of op.agencyIds(); track id) {
+        <button type="button" class="toggle" [attr.aria-pressed]="sel.has(id)" (click)="toggle(id)">
+          {{ op.agencyName(id) }}
+          @if (loadingAgencies().has(id)) {
+            <span class="spin" aria-label="loading"></span>
+          }
         </button>
       }
     </div>
-    <span class="small muted hint">
-      @switch (top()) {
-        @case ('stops') { Tap any stop, even under a train. }
-        @case ('lines') { Tap a line to see its route. }
-      }
-    </span>
-  </div>
-}
+  }
+  @if (!op.noFeed()) {
+    <div class="on-top">
+      <span class="small muted" id="top-label">On top</span>
+      <div class="segmented" role="group" aria-labelledby="top-label">
+        @for (t of tops; track t) {
+          <button type="button" [attr.aria-pressed]="top() === t" (click)="setTop(t)">
+            {{ t === 'vehicles' ? 'Vehicles' : t === 'stops' ? 'Stops' : 'Lines' }}
+          </button>
+        }
+      </div>
+      <span class="small muted hint">
+        @switch (top()) {
+          @case ('stops') { Tap any stop, even under a train. }
+          @case ('lines') { Tap a line to see its route. }
+        }
+      </span>
+    </div>
+  }
+</div>
 <div class="map-wrap card" [hidden]="op.noFeed()">
   <div #map class="map" role="region" aria-label="Map of {{ op.name() }} lines, stations and trains"></div>
   @if (loadingAgencies().size && !fitted) {
@@ -68,17 +70,21 @@
       </p>
     }
     @if (legend().length) {
-      <ul class="legend" aria-label="Routes">
-        @for (e of legend(); track e.label + e.color) {
-          <li><span class="swatch" [style.background]="safeColor(e.color)"></span>{{ e.label }}</li>
+      <ul class="legend" [class.picking]="legendPicked()" aria-label="Lines: pick one to highlight it">
+        @for (e of legend(); track e.key) {
+          <li>
+            <button type="button" [attr.aria-pressed]="legendPicked() === e.key" (click)="pickLegend(e)">
+              <span class="swatch" [style.background]="safeColor(e.color)"></span>{{ e.label }}
+            </button>
+          </li>
         }
       </ul>
     }
     @if (op.multiAgency()) {
       <p class="small muted">
-        Zoom in to see street stops. Faded, dashed markers are estimated from live predictions: BART
-        publishes no GPS.
+        Zoom in for street stops. Faded, dashed markers are estimated: BART publishes no GPS.
       </p>
     }
+    <app-feed-note class="feed-note small muted" />
   </div>
 }

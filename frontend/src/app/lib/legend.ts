@@ -4,8 +4,11 @@ import type { AgencyId, Route } from '../api/models';
 import { agencyName, compareAgencies } from './agencies';
 
 export interface LegendEntry {
+  key: string;
   label: string;
   color: string;
+  /** Every route the swatch stands for: both directions, a whole bus network. */
+  routes: string[];
 }
 
 /**
@@ -29,8 +32,7 @@ export function legendEntries(
   agencies: ReadonlySet<AgencyId>,
   names: (id: AgencyId) => string = (id) => agencyName(id),
 ): LegendEntry[] {
-  const out: LegendEntry[] = [];
-  const seen = new Set<string>();
+  const out = new Map<string, LegendEntry>();
   const sorted = routes
     .filter((r) => agencies.has(r.agency))
     .sort((a, b) => compareAgencies(a.agency, b.agency));
@@ -40,9 +42,9 @@ export function legendEntries(
     if (bus && hasRail.has(r.agency)) continue;
     const label = bus ? `${names(r.agency)} buses` : lineName(r);
     const key = bus ? `bus|${r.agency}` : `${r.agency}|${label}|${r.color}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({ label, color: r.color });
+    const entry = out.get(key);
+    if (entry) entry.routes.push(r.id);
+    else out.set(key, { key, label, color: r.color, routes: [r.id] });
   }
-  return out;
+  return [...out.values()];
 }
