@@ -67,12 +67,19 @@ means realtime is stale and the UI should say so.
 ```json
 [
   {"id": "BA", "name": "Bay Area Rapid Transit", "url": "https://www.bart.gov",
-   "timezone": "America/Los_Angeles", "route_types": [1, 3]}
+   "timezone": "America/Los_Angeles", "route_types": [1, 3],
+   "feed": {"version": "20261019", "start_date": "2026-08-10", "end_date": "2027-01-10"}}
 ]
 ```
 
 `route_types` lists the GTFS route types the feed has for that agency
 (0 light rail, 1 subway, 2 rail, 3 bus, 5 cable car).
+
+`feed` is the agency's own timetable inside a merged feed (511's regional
+feed lists one per agency), or `null` when the feed doesn't say. A merged
+feed's own `start_date`/`end_date` in `/operators` is when all of its
+agencies' timetables are valid: from the latest start to the earliest end,
+so its `end_date` is when the first one runs out.
 
 ## Places
 

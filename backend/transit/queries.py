@@ -139,6 +139,13 @@ def agencies(ctx: Context) -> list[dict]:
             "url": a.url,
             "timezone": a.timezone,
             "route_types": sorted(types.get(a.pk, ())),
+            "feed": {
+                "version": a.feed_version,
+                "start_date": a.start_date.isoformat(),
+                "end_date": a.end_date.isoformat(),
+            }
+            if a.start_date and a.end_date
+            else None,
         }
         for a in Agency.objects.filter(feed=ctx.feed).order_by("agency_id")
     ]

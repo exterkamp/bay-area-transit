@@ -64,6 +64,12 @@ class Agency(models.Model):
     phone = models.CharField(max_length=64, blank=True)
     fare_url = models.URLField(max_length=500, blank=True)
     email = models.EmailField(blank=True)
+    # Each agency's own timetable version and validity, where a merged feed
+    # says (511's regional feed: mtc_feed_versions.txt). A single-agency feed
+    # has feed_info.txt for that instead.
+    feed_version = models.CharField(max_length=64, blank=True)
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
 
     class Meta:
         verbose_name_plural = "agencies"
@@ -71,6 +77,12 @@ class Agency(models.Model):
             models.UniqueConstraint(fields=["feed", "agency_id"], name="agency_unique_per_feed"),
             models.CheckConstraint(condition=~Q(name=""), name="agency_name_required"),
             models.CheckConstraint(condition=~Q(timezone=""), name="agency_timezone_required"),
+            models.CheckConstraint(
+                condition=Q(start_date__isnull=True)
+                | Q(end_date__isnull=True)
+                | Q(end_date__gte=F("start_date")),
+                name="agency_date_range_valid",
+            ),
         ]
 
     def __str__(self):
