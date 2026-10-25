@@ -19,6 +19,10 @@ The contract is the boundary: change it there first.
   existing `bay-area-transit_default` network. Don't add networks without a subnet.
 - 511 allows 60 requests/hour per key. `poll_realtime` and `fetch_feeds` spend
   them; don't loop them in tests. The worker enforces a budget at startup.
+- `.env` is ignored, but commits before the Django 5.2 rebuild tracked one.
+  Checking out such a commit silently overwrites `.env`, and coming back
+  deletes it. Copy it aside first; `scripts/bootstrap.sh` only rebuilds it
+  with a new secret key.
 - Secrets in `secrets/` are 0644 inside a 0700 directory, on purpose: compose
   bind-mounts them with host permissions and containers run non-root.
 - Datetimes are UTC internally; convert to the agency zone only in API output.

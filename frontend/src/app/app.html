@@ -32,13 +32,24 @@
 <footer class="wrap footer">
   @if (op.feed(); as f) {
     <p>
-      Timetable valid {{ f.start_date | day }} – {{ f.end_date | day }}
-      @if (f.version) {
-        <span class="sep">·</span> feed {{ f.version }}
+      @if (firstToEnd(); as first) {
+        Timetables valid through {{ f.end_date | day }}
+        <span class="sep">·</span> {{ first }}'s runs out first
+      } @else {
+        Timetable valid {{ f.start_date | day }} – {{ f.end_date | day }}
+        @if (f.version) {
+          <span class="sep">·</span> feed {{ f.version }}
+        }
       }
     </p>
     @if (feedOutOfRange()) {
-      <p class="warn">Today is outside this timetable's dates — times may be wrong.</p>
+      <p class="warn">
+        @if (firstToEnd(); as first) {
+          {{ first }}'s timetable has run out — its times may be wrong.
+        } @else {
+          Today is outside this timetable's dates — times may be wrong.
+        }
+      </p>
     }
   } @else if (op.noFeed()) {
     <p>No timetable has been imported yet.</p>

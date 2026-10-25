@@ -73,6 +73,7 @@ SUPPORTED = {
     "calendar_dates.txt",
     "shapes.txt",
     "feed_info.txt",
+    "mtc_feed_versions.txt",
     "fare_attributes.txt",
     "fare_rules.txt",
 }
@@ -505,6 +506,7 @@ class _Importer:
         zones = {a.timezone for a in self.agency_by_id.values()}
         if len(zones) > 1:
             self.problems.error(name, f"agencies disagree on timezone: {sorted(zones)}")
+        self.agency_versions()
         self.problems.check()
 
         Agency.objects.bulk_create(self.agency_by_id.values())
@@ -515,6 +517,34 @@ class _Importer:
             operator.name = agencies[0].name if len(agencies) == 1 else operator.code
         operator.save()
         self.counts["agencies"] = len(self.agency_by_id)
+
+    def agency_versions(self):
+        """Each agency's timetable version and dates, from 511's mtc_feed_versions.txt.
+
+        Without feed_info dates, the feed is valid while all of its kept
+        agencies' timetables are: from the latest start to the earliest end.
+        If they don't overlap, the end is still when the first runs out.
+        """
+        for where, row in self.rows("mtc_feed_versions.txt", ("agency_id",)):
+            agency = self.agency_by_id.get(row["agency_id"])
+            if agency is None:
+                continue
+            start = gtfs_date(row, "feed_start_date", where, self.problems)
+            end = gtfs_date(row, "feed_end_date", where, self.problems)
+            if start and end and end < start:
+                self.problems.warn(where, f"feed_end_date {end} is before feed_start_date {start}")
+                start = end = None
+            agency.feed_version = row.get("feed_version", "")[:64]
+            agency.start_date, agency.end_date = start, end
+        if self.feed.start_date or self.feed.end_date:
+            return
+        dated = [a for a in self.agency_by_id.values() if a.start_date and a.end_date]
+        if dated:
+            end = min(a.end_date for a in dated)
+            start = max(a.start_date for a in dated)
+            if start > end:
+                start = min(a.start_date for a in dated)
+            self.feed.start_date, self.feed.end_date = start, end
 
     def routes(self):
         self.route_by_id = {}
@@ -768,8 +798,8 @@ class _Importer:
         self.counts["service_dates"] = len(self.exceptions)
 
         if self.feed.start_date is None and self.feed.end_date is None:
-            # No feed_info dates (511's regional feed ships an empty one): the
-            # feed is valid for as long as its calendar says something runs.
+            # No feed_info or agency dates: the feed is valid for as long as
+            # its calendar says something runs.
             days = [d for s in self.service_by_id.values() for d in (s.start_date, s.end_date)]
             days += [day for _, day, kind in self.exceptions if kind == ExceptionType.ADDED]
             days = [d for d in days if d is not None]

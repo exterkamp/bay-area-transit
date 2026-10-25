@@ -18,6 +18,14 @@ export class App {
   protected readonly op = inject(OperatorService);
   private readonly clock = inject(ClockService);
 
+  /** In a merged feed, the agency whose timetable runs out first: its end is the feed's. */
+  protected readonly firstToEnd = computed(() => {
+    if (!this.op.multiAgency()) return null;
+    const dated = (this.op.agencies.data() ?? []).filter((a) => a.feed);
+    dated.sort((a, b) => a.feed!.end_date.localeCompare(b.feed!.end_date));
+    return dated[0] ? this.op.agencyName(dated[0].id) : null;
+  });
+
   /** The feed's validity window doesn't cover today. */
   protected readonly feedOutOfRange = computed(() => {
     const f = this.op.feed();

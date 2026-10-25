@@ -1,3 +1,5 @@
+import shutil
+
 import pytest
 
 from transit.gtfs.importer import FeedFilter, GTFSValidationError, import_feed
@@ -90,3 +92,37 @@ def test_same_archive_different_filter_is_a_new_feed(operator):
     other = import_feed(operator, REGIONAL, only=FeedFilter.parse("RA,BU"))
     assert first.created and not again.created and other.created
     assert Feed.objects.count() == 2
+
+
+def test_validity_is_while_every_kept_agency_is_valid(operator):
+    feed = import_feed(operator, REGIONAL, only=FeedFilter.parse("RA,BU")).feed
+    # RA runs 2026-2027, BU only March to November 2026.
+    assert (str(feed.start_date), str(feed.end_date)) == ("2026-03-01", "2026-11-30")
+    bu = Agency.objects.get(feed=feed, agency_id="BU")
+    assert (bu.feed_version, str(bu.start_date), str(bu.end_date)) == (
+        "20260301",
+        "2026-03-01",
+        "2026-11-30",
+    )
+
+
+def test_without_overlap_the_feed_ends_when_the_first_agency_does(operator, tmp_path):
+    target = tmp_path / "regional"
+    shutil.copytree(REGIONAL, target)
+    versions = target / "mtc_feed_versions.txt"
+    versions.write_text(
+        versions.read_text().replace(
+            "BU,20260301,bbbb,20260301,20261130", "BU,1,b,20280101,20281231"
+        )
+    )
+    feed = import_feed(operator, target, only=FeedFilter.parse("RA,BU")).feed
+    assert (str(feed.start_date), str(feed.end_date)) == ("2026-01-01", "2027-12-31")
+
+
+def test_without_versions_validity_comes_from_the_calendar(operator, tmp_path):
+    target = tmp_path / "regional"
+    shutil.copytree(REGIONAL, target)
+    (target / "mtc_feed_versions.txt").unlink()
+    feed = import_feed(operator, target, only=FeedFilter.parse("RA,BU")).feed
+    # The union of RA's and BU's calendars.
+    assert (str(feed.start_date), str(feed.end_date)) == ("2026-01-01", "2027-12-31")

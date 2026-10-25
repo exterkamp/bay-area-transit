@@ -186,6 +186,11 @@ def test_agencies(ctx):
     by_id = {a["id"]: a for a in queries.agencies(ctx)}
     assert set(by_id) == {"RA", "BU", "XX"}
     assert by_id["RA"]["route_types"] == [0, 5]
+    assert by_id["BU"]["feed"] == {
+        "version": "20260301",
+        "start_date": "2026-03-01",
+        "end_date": "2026-11-30",
+    }
 
 
 class TestApi:

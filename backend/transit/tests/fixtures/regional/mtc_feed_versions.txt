@@ -1,0 +1,4 @@
+agency_id,feed_version,sha1,feed_start_date,feed_end_date
+RA,20260101,aaaa,20260101,20271231
+BU,20260301,bbbb,20260301,20261130
+XX,20250101,cccc,20250101,20291231
