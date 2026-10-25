@@ -1,5 +1,18 @@
 :host { display: block; }
 
+.on-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+  .hint { flex-basis: 100%; min-height: 1.2em; }
+}
+
+@media (min-width: 40rem) {
+  .on-top .hint { flex-basis: auto; }
+}
+
 .agencies {
   display: flex;
   flex-wrap: wrap;

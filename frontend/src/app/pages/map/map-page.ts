@@ -32,14 +32,32 @@ import { StateView } from '../../shared/state';
 /** San Francisco and the Peninsula, for before anything has loaded. */
 const DEFAULT_CENTER: L.LatLngExpression = [37.6, -122.35];
 const DEFAULT_ZOOM = 10;
-/** Street stops (as opposed to stations) only show from this zoom in. */
+/** Street stops (as opposed to stations) only show from this zoom in; a zoom earlier with stops on top. */
 const STOPS_ZOOM = 14;
+
+/**
+ * Which layer is on top and takes taps. Leaflet's line and stop layers each
+ * catch taps anywhere over the map, so only the top one can be tapped; the
+ * others fade and let taps through.
+ */
+export type MapTop = 'vehicles' | 'stops' | 'lines';
+/** Marker radii: normal, and with stops on top (bigger to see and to tap). */
+const RADIUS = { station: [6, 8], stop: [3.5, 5.5] } as const;
+const MAP_TOPS: readonly MapTop[] = ['vehicles', 'stops', 'lines'];
+const PANE_Z: Record<MapTop, { routes: string; stations: string }> = {
+  vehicles: { routes: '400', stations: '450' },
+  stops: { routes: '400', stations: '450' },
+  // Above the stops, still below the vehicles (markerPane, 600).
+  lines: { routes: '500', stations: '450' },
+};
 /** Shown by default: rail of every kind, and ferries. Bus networks are opt-in. */
 const DEFAULT_TYPES = new Set([0, 1, 2, 4, 5, 12]);
 
 /** One agency's lines and places, fetched once per visit and kept. */
 interface AgencyLayers {
   shapes: L.LayerGroup;
+  casing: L.GeoJSON;
+  lines: L.GeoJSON;
   stations: L.FeatureGroup;
   stops: L.LayerGroup;
 }
@@ -123,7 +141,10 @@ export class MapPage {
 
   private readonly layers = new Map<AgencyId, AgencyLayers>();
   private readonly fetching = new Set<AgencyId>();
-  private readonly renderer = L.canvas({ padding: 0.5 });
+  /** Stops draw on one canvas in their own pane; a wide tolerance makes small dots easy to tap. */
+  private readonly renderer = L.canvas({ padding: 0.5, pane: 'stations', tolerance: 6 });
+  protected readonly top = signal<MapTop>(this.storedTop());
+  private readonly highlighted = signal<string | null>(null);
   private readonly vehicleLayer = L.layerGroup();
   private readonly vehicleMarkers = new Map<string, L.Marker>();
   protected fitted = false;
@@ -144,12 +165,14 @@ export class MapPage {
         maxZoom: 19,
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       }).addTo(m);
-      // Stations sit above the route lines (overlayPane, 400) and below trains (markerPane, 600).
-      m.createPane('stations').style.zIndex = '450';
+      // Lines, then stations, then trains (markerPane, 600); "lines on top" lifts the lines.
+      m.createPane('routes').style.zIndex = PANE_Z.vehicles.routes;
+      m.createPane('stations').style.zIndex = PANE_Z.vehicles.stations;
       this.vehicleLayer.addTo(m);
       m.on('zoomend', () => {
         for (const layers of this.layers.values()) this.updateStops(m, layers);
       });
+      m.on('popupclose', () => this.highlighted.set(null));
       this.map.set(m);
       // The container may have been sized after Leaflet measured it.
       setTimeout(() => m.invalidateSize(), 0);
@@ -168,6 +191,8 @@ export class MapPage {
       this.selected.set(new Set(remembered.length ? remembered : shown.length ? shown : [...ids]));
     });
     effect(() => this.syncLayers(this.map(), this.selected()));
+    effect(() => this.applyTop(this.map(), this.top()));
+    effect(() => this.applyHighlight(this.highlighted()));
     effect(() => this.drawVehicles(this.map(), this.vehicles.data()));
     effect(() => this.focusVehicle(this.map(), this.vehicles.data(), this.vehicle()));
   }
@@ -179,6 +204,60 @@ export class MapPage {
   protected retry(): void {
     this.failedAgencies.set(new Set());
     this.syncLayers(this.map(), this.selected());
+  }
+
+  protected readonly tops = MAP_TOPS;
+
+  protected setTop(top: MapTop): void {
+    this.top.set(top);
+    writeJson(STORAGE_KEYS.mapTop, top);
+  }
+
+  private storedTop(): MapTop {
+    const v = readJson<unknown>(STORAGE_KEYS.mapTop, 'vehicles');
+    return MAP_TOPS.includes(v as MapTop) ? (v as MapTop) : 'vehicles';
+  }
+
+  private applyTop(m: L.Map | null, top: MapTop): void {
+    if (!m) return;
+    m.getPane('routes')!.style.zIndex = PANE_Z[top].routes;
+    m.getPane('stations')!.style.zIndex = PANE_Z[top].stations;
+    // The fading and tap-through rules are CSS keyed on this (styles.scss).
+    m.getContainer().dataset['top'] = top;
+    if (top !== 'lines') {
+      m.closePopup();
+      this.highlighted.set(null);
+    }
+    for (const layers of this.layers.values()) {
+      this.sizeMarkers(layers);
+      this.updateStops(m, layers);
+    }
+  }
+
+  private sizeMarkers(layers: AgencyLayers): void {
+    const big = untracked(this.top) === 'stops' ? 1 : 0;
+    layers.stations.eachLayer((l) => (l as L.CircleMarker).setRadius(RADIUS.station[big]));
+    layers.stops.eachLayer((l) => (l as L.CircleMarker).setRadius(RADIUS.stop[big]));
+  }
+
+  /** Fade every line but the tapped route's. */
+  private applyHighlight(routeId: string | null): void {
+    for (const layers of this.layers.values()) {
+      layers.lines.eachLayer((l) => {
+        const id = ((l as L.Path & { feature?: GeoJSON.Feature }).feature?.properties as { route_id?: string } | undefined)
+          ?.route_id;
+        (l as L.Path).setStyle({ opacity: !routeId || id === routeId ? 0.95 : 0.15 });
+      });
+      layers.casing.setStyle({ opacity: routeId ? 0.15 : 0.5 });
+    }
+  }
+
+  private lineClicked(e: L.LeafletMouseEvent, routeId: string): void {
+    const route = this.routes.data()?.find((r) => r.id === routeId);
+    const title = route ? route.long_name || route.short_name : routeId;
+    const sub = route ? `${this.op.agencyName(route.agency)}${route.long_name && route.short_name ? ` · ${route.short_name}` : ''}` : '';
+    this.highlighted.set(routeId);
+    L.popup({ autoPan: false }).setLatLng(e.latlng).setContent(this.popup(title, sub, '', '')).openOn(this.map()!);
   }
 
   protected toggle(id: AgencyId): void {
@@ -211,8 +290,9 @@ export class MapPage {
         firstValueFrom(this.http.get<ShapeCollection>(apiUrls.shapes(code, { agency: id }))),
         firstValueFrom(this.http.get<Place[]>(apiUrls.stations(code, { agency: id }))),
       ]);
-      const layers = { shapes: this.shapeLayer(shapes), ...this.placeLayers(places) };
+      const layers = { ...this.shapeLayers(shapes), ...this.placeLayers(places) };
       this.layers.set(id, layers);
+      this.sizeMarkers(layers);
       if (untracked(this.selected)?.has(id)) this.show(m, layers);
       this.fitOnce(m);
     } catch {
@@ -243,16 +323,20 @@ export class MapPage {
   }
 
   private updateStops(m: L.Map, layers: AgencyLayers): void {
-    if (m.getZoom() >= STOPS_ZOOM && m.hasLayer(layers.stations)) layers.stops.addTo(m);
+    const from = untracked(this.top) === 'stops' ? STOPS_ZOOM - 1 : STOPS_ZOOM;
+    if (m.getZoom() >= from && m.hasLayer(layers.stations)) layers.stops.addTo(m);
     else layers.stops.remove();
   }
 
-  private shapeLayer(fc: ShapeCollection): L.LayerGroup {
+  private shapeLayers(fc: ShapeCollection): Pick<AgencyLayers, 'shapes' | 'casing' | 'lines'> {
     // A dark casing under each line keeps pale route colors visible on the basemap.
     const casing = L.geoJSON(fc as GeoJSON.FeatureCollection, {
       style: () => ({ color: '#1b1d1f', weight: 6, opacity: 0.5, lineCap: 'round', lineJoin: 'round' }),
       interactive: false,
+      pane: 'routes',
     });
+    // Interactive, but only tappable with lines on top: the other modes turn
+    // their pointer events off in styles.scss.
     const lines = L.geoJSON(fc as GeoJSON.FeatureCollection, {
       style: (f) => ({
         color: safeColor((f?.properties as { color?: string } | undefined)?.color),
@@ -261,9 +345,16 @@ export class MapPage {
         lineCap: 'round',
         lineJoin: 'round',
       }),
-      interactive: false,
+      pane: 'routes',
+      onEachFeature: (f, layer) => {
+        const routeId = (f.properties as { route_id: string }).route_id;
+        layer.on('click', (e) => this.lineClicked(e as L.LeafletMouseEvent, routeId));
+      },
     });
-    return L.layerGroup([casing, lines]);
+    const shapes = L.layerGroup([casing, lines]);
+    const routeId = untracked(this.highlighted);
+    if (routeId) queueMicrotask(() => this.applyHighlight(routeId));
+    return { shapes, casing, lines };
   }
 
   private placeLayers(places: Place[]): Pick<AgencyLayers, 'stations' | 'stops'> {
@@ -274,7 +365,6 @@ export class MapPage {
         weight: radius > 4 ? 2 : 1.5,
         fillColor: '#ffffff',
         fillOpacity: 1,
-        pane: 'stations',
         renderer: this.renderer,
       })
         .bindTooltip(stationName(p.name), { direction: 'top', offset: [0, -radius] })
@@ -287,8 +377,8 @@ export class MapPage {
           ),
         );
     return {
-      stations: L.featureGroup(places.filter((p) => p.kind === 'station').map((p) => marker(p, 6))),
-      stops: L.layerGroup(places.filter((p) => p.kind === 'stop').map((p) => marker(p, 3.5))),
+      stations: L.featureGroup(places.filter((p) => p.kind === 'station').map((p) => marker(p, RADIUS.station[0]))),
+      stops: L.layerGroup(places.filter((p) => p.kind === 'stop').map((p) => marker(p, RADIUS.stop[0]))),
     };
   }
 

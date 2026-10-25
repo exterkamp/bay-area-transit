@@ -45,6 +45,8 @@ export const STORAGE_KEYS = {
   legacyTrip: 'bat.trip.CT',
   /** Places recently picked, most recent first. */
   recents: (op: string) => `bat.recents.${op}`,
+  /** Which map layer is on top: vehicles, stops or lines. */
+  mapTop: 'bat.map.top',
   /** Agencies shown on the map. */
   mapAgencies: (op: string) => `bat.map.${op}`,
   dismissedAlerts: 'bat.dismissedAlerts',

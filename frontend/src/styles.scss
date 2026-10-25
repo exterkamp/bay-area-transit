@@ -268,6 +268,23 @@ select.control {
 }
 
 // Vehicle marker: a disc in the route color with a heading wedge.
+// Map "on top" modes (map-page applyTop). Whatever isn't on top fades and lets
+// taps through, so the top layer can be tapped wherever it is.
+.leaflet-routes-pane path.leaflet-interactive { cursor: pointer; }
+.leaflet-container:not([data-top='lines']) .leaflet-routes-pane path.leaflet-interactive {
+  pointer-events: none;
+}
+.leaflet-container[data-top='stops'] {
+  .leaflet-marker-pane { opacity: 0.35; }
+  .leaflet-marker-pane > * { pointer-events: none; }
+  .leaflet-routes-pane { opacity: 0.45; }
+}
+.leaflet-container[data-top='lines'] {
+  .leaflet-stations-pane { opacity: 0.4; pointer-events: none; }
+  .leaflet-stations-pane canvas { pointer-events: none; }
+}
+.leaflet-pane { transition: opacity 0.15s; }
+
 .veh-icon { background: none; border: 0; }
 .veh {
   position: relative;

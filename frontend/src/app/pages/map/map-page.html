@@ -18,6 +18,24 @@
     }
   </div>
 }
+@if (!op.noFeed()) {
+  <div class="on-top">
+    <span class="small muted" id="top-label">On top</span>
+    <div class="segmented" role="group" aria-labelledby="top-label">
+      @for (t of tops; track t) {
+        <button type="button" [attr.aria-pressed]="top() === t" (click)="setTop(t)">
+          {{ t === 'vehicles' ? 'Vehicles' : t === 'stops' ? 'Stops' : 'Lines' }}
+        </button>
+      }
+    </div>
+    <span class="small muted hint">
+      @switch (top()) {
+        @case ('stops') { Tap any stop, even under a train. }
+        @case ('lines') { Tap a line to see its route. }
+      }
+    </span>
+  </div>
+}
 <div class="map-wrap card" [hidden]="op.noFeed()">
   <div #map class="map" role="region" aria-label="Map of {{ op.name() }} lines, stations and trains"></div>
   @if (loadingAgencies().size && !fitted) {
