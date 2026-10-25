@@ -1,0 +1,9 @@
+trip_id,arrival_time,departure_time,stop_id,stop_sequence
+RA:1,08:00:00,08:00:00,hub_rail,1
+RA:1,08:20:00,08:20:00,far_rail,2
+RA:2,09:00:00,09:00:00,hub_rail,1
+RA:2,09:20:00,09:20:00,far_rail,2
+BU:1,08:00:00,08:00:00,hub_bay,1
+BU:1,08:10:00,08:10:00,corner,2
+XX:1,10:00:00,10:00:00,x_stop,1
+XX:1,10:30:00,10:30:00,unused,2

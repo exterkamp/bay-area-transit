@@ -1,0 +1,5 @@
+shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence
+RA:s1,37.70,-122.40,1
+RA:s1,37.50,-122.20,2
+BU:s1,37.70,-122.40,1
+BU:s1,37.60,-122.30,2

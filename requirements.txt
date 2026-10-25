@@ -1,5 +1,0 @@
-requests
-djangorestframework
-markdown
-django-filter
-drf-extensions

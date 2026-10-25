@@ -1,0 +1,122 @@
+.head {
+  margin-bottom: 0.9rem;
+  .line1 { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; }
+  h1 .muted { font-weight: 500; }
+  &.is-canceled h1 { text-decoration: line-through; text-decoration-thickness: 2px; }
+}
+
+.facts {
+  margin: 0.3rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.85rem;
+}
+
+.notice { margin-bottom: 0.75rem; }
+
+.vehicle {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.6rem 0.6rem 0.6rem 0.85rem;
+  margin-bottom: 0.9rem;
+}
+
+.pulse {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 50%, transparent);
+  animation: ring 2s ease-out infinite;
+}
+
+@keyframes ring {
+  to { box-shadow: 0 0 0 0.6rem transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse { animation: none; }
+}
+
+.stops {
+  list-style: none;
+  margin: 0;
+  padding: 0.4rem 0;
+}
+
+.stop {
+  display: grid;
+  // The name keeps at least 7rem; the time column wraps its delay text below.
+  grid-template-columns: 1.6rem minmax(7rem, 1fr) auto;
+  align-items: center;
+  column-gap: 0.5rem;
+  padding: 0.45rem 0.85rem 0.45rem 0.6rem;
+  min-height: 2.75rem;
+}
+
+.rail {
+  position: relative;
+  grid-row: 1 / span 2;
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  &::before {
+    content: '';
+    position: absolute;
+    top: -0.45rem;
+    bottom: -0.45rem;
+    left: 50%;
+    width: 3px;
+    transform: translateX(-50%);
+    background: var(--line);
+  }
+}
+
+.stop:first-child .rail::before { top: 50%; }
+.stop:last-child .rail::before { bottom: 50%; }
+
+.node {
+  position: relative;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 3px solid var(--fg-soft);
+}
+
+.name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+  min-width: 0;
+  &:hover { text-decoration: underline; }
+}
+
+.time {
+  text-align: right;
+  font-size: 0.95rem;
+  app-stop-time { justify-content: flex-end; column-gap: 0.3rem; }
+}
+
+.passed {
+  .name, .time { color: var(--muted); }
+  .node { border-color: var(--line); }
+  .rail::before { background: color-mix(in srgb, var(--line) 60%, transparent); }
+}
+
+.skipped {
+  .name { text-decoration: line-through; color: var(--muted); }
+  .node { border-style: dashed; border-color: var(--muted); }
+}
+
+.here {
+  .node { border-color: var(--ok); background: var(--ok); }
+}
+
+.here-tag {
+  grid-column: 2 / -1;
+  color: var(--ok);
+  font-weight: 600;
+}

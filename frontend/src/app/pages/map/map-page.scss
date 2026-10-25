@@ -1,0 +1,139 @@
+:host { display: block; }
+
+.on-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+  .hint { flex-basis: 100%; min-height: 1.2em; }
+}
+
+@media (min-width: 40rem) {
+  .on-top .hint { flex-basis: auto; }
+}
+
+.agencies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+}
+
+// Phones: one row that scrolls sideways, so the toggles don't push the map down.
+@media (max-width: 40rem) {
+  .agencies {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+    &::-webkit-scrollbar { display: none; }
+  }
+  .toggle { flex: none; }
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.25rem;
+  padding: 0.3rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--fg-soft);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+
+  &[aria-pressed='true'] {
+    background: var(--fg);
+    border-color: var(--fg);
+    color: var(--bg);
+  }
+}
+
+.spin {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.link {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.map-wrap {
+  position: relative;
+  overflow: hidden;
+  // Full-bleed on phones: the map is the page.
+  margin-inline: -1rem;
+  border-radius: 0;
+  border-inline: 0;
+}
+
+@media (min-width: 44rem) {
+  .map-wrap { margin-inline: 0; border-radius: var(--radius); border-inline: 1px solid var(--line); }
+}
+
+.map {
+  height: calc(100dvh - 15rem);
+  min-height: 20rem;
+  max-height: 52rem;
+  z-index: 0;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 400;
+}
+
+.chip {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  box-shadow: var(--shadow);
+}
+
+.below { margin-top: 0.6rem; }
+.status { margin: 0 0 0.5rem; }
+.bad { color: var(--bad); }
+
+.legend {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.9rem;
+  font-size: 0.82rem;
+  color: var(--fg-soft);
+
+  li { display: inline-flex; align-items: center; gap: 0.4rem; }
+}
+
+.swatch {
+  width: 1.1rem;
+  height: 0.35rem;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.35);
+}

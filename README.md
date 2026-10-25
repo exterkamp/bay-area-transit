@@ -1,54 +1,105 @@
 # bay-area-transit
 
-## Create your API key secrets cfg
+Muni Metro, BART, SamTrans and Caltrain schedules with live predictions,
+built on the [511.org open data](https://511.org/open-data/transit)
+regional GTFS and GTFS-realtime feeds. Search any station or stop, plan
+direct trips, see departure boards and live vehicles on a map.
 
-```
-$ touch secrets/api.cfg
-```
+- **backend/**: Django 5.2 + PostGIS. Imports static GTFS feeds into a
+  constrained schema, polls GTFS-realtime, and serves a read-only JSON API
+  ([docs/api.md](docs/api.md)): trip planning, departure boards, trip
+  detail, live vehicles and alerts.
+- **frontend/**: Angular 22. Place search, trip planner, departure boards,
+  trip detail and a Leaflet map with per-agency layers and live vehicles.
+- **docker-compose.yml**: `db` (PostGIS), `backend` (gunicorn), `worker`
+  (feed refresh and realtime poller) and `web` (nginx serving the built
+  frontend and proxying `/api`).
 
-config to add:
-
-```
-[api]
-API_KEY=...
-BASE_URL=https://api.511.org
-```
-
-## Get a feed
-
-By default `CT` is the only feed pulled.
-
-```sh
-$ python scripts/import_gtfs.py
-```
-
-## Run Docker compose Stack
-
-Run the initialization script.
+## Setup
 
 ```sh
-$ ./init.sh
+./scripts/bootstrap.sh     # writes .env and secrets/, once
 ```
 
-When you're done, bring it all down.
+It needs a 511 API key ([request one](https://511.org/open-data/token)) in
+`secrets/transit_511_api_key`. If the old `secrets/api.cfg` is there, the key
+is copied from it.
+
+## Run it
 
 ```sh
-$ ./reset.sh
+(cd frontend && npm ci && npm run build)
+docker compose up -d --build
+open http://127.0.0.1:8086
 ```
 
-## Run Django App (pre-docker)
+On first start the worker downloads 511's regional feed (about 60 MB) and
+imports the four agencies (about a minute), then starts polling realtime.
+`?op=CT` on any URL shows a single agency's own feed instead, if
+`TRANSIT_OPERATORS` imports it.
+
+## Develop
 
 ```sh
-$ cd bayareatransit
-$ python manage.py migrate
-$ python manage.py runserver 0.0.0.0:10500
+# Backend with autoreload on 127.0.0.1:8087
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db backend worker
+
+# Frontend dev server, proxying /api to 8087
+devrun up --name web --port-env PORT -- "$PWD/frontend/scripts/dev.sh"
+devrun url web
 ```
 
-### Django commands
+Tests:
 
 ```sh
-$ python bayareatransit/manage.py makemigrations
-$ python bayareatransit/manage.py migrate
-$ python bayareatransit/manage.py import_gtfs data/operators/feeds/CT --name=test
-$ python bayareatransit/manage.py runserver 0.0.0.0:10500
+DC="docker compose -f docker-compose.yml -f docker-compose.dev.yml"
+$DC run --rm backend python -m pytest      # backend, against a throwaway PostGIS db
+$DC run --rm backend ruff check .
+(cd frontend && npm test && npm run typecheck)
 ```
+
+Useful management commands (`$DC exec backend python manage.py ...`):
+
+| Command | Does |
+|---|---|
+| `fetch_feeds [RG]` | Download static feeds from 511, import any that changed |
+| `import_gtfs path.zip --operator CT` | Import a local archive or folder |
+| `poll_realtime [RG] [--kind alerts]` | Poll realtime once |
+| `run_worker` | What the `worker` service runs |
+| `createsuperuser` | For `/admin/` (read-only browsing), at http://127.0.0.1:8087/admin/ only: the `web` container deliberately doesn't proxy it |
+
+## 511 rate limit
+
+511 allows **60 requests/hour per API key**, shared by everything that
+uses the key. At the default intervals, realtime for one operator costs 46
+requests/hour (trip updates and vehicle positions every 3 minutes, alerts
+every 10), and the worker refuses to start with a schedule over
+`TRANSIT_511_HOURLY_BUDGET` (55). That's why realtime is on for one
+operator at a time. Static feeds are checked once a day and only re-imported
+when the archive changes.
+
+`RG` is 511's regional feed: one static archive and one realtime request per
+kind cover every agency. `TRANSIT_RG_AGENCIES` (default `SF:0,BA,SM,CT`, so
+Muni rail, BART, SamTrans and Caltrain) picks what gets imported, and the
+poller drops realtime about anything the import left out. So realtime for all
+four costs the same 46 requests/hour as Caltrain alone.
+
+## Data model
+
+Every GTFS table carries its `feed`. GTFS ids are unique per feed, and
+enums and conditional requirements are check constraints. Times are
+seconds after the start of the service day, so 25:10:00 works. The importer
+runs in one transaction and rejects a feed whole, listing every problem by
+file and line. Untimed stops are interpolated, and a new feed becomes active
+only once it is complete. Realtime is stored as replaceable snapshots keyed
+by GTFS ids, never foreign keys, so a feed swap can't break it. See the
+docstrings in `backend/transit/models/`.
+
+**Places** are derived at import, not read from GTFS: a station with its
+platforms, or same-named stops within 300 m (both sides of a street). They
+are what riders search for (`places?q=`, trigram-matched), plan between and
+see boards for, so picking the wrong side of the street still finds trips.
+
+Not modelled: frequencies.txt, transfers.txt, fare products beyond the base
+fare, and journeys that need a transfer (San Francisco to Gilroy changes
+at San Jose for the South County connector).

@@ -1,0 +1,5 @@
+fare_id,route_id,origin_id,destination_id,contains_id
+F13,,Z1,Z3,
+F13,,Z3,Z1,
+F12,,Z1,Z2,
+F23,,Z2,Z3,

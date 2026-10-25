@@ -1,0 +1,5 @@
+route_id,agency_id,route_short_name,route_type,route_color
+RA:L,RA,L,0,0055aa
+RA:CC,RA,CC,5,aa5500
+BU:1,BU,1,3,
+XX:9,XX,9,3,

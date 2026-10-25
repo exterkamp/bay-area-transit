@@ -1,0 +1,94 @@
+@if (op.noFeed()) {
+  <app-state
+    kind="empty"
+    title="No schedule loaded yet"
+    message="The {{ op.name() }} timetable hasn't been imported. Check back soon."
+  />
+} @else if (trip.data(); as t) {
+  <header class="head" [class.is-canceled]="t.status === 'canceled'">
+    <div class="line1">
+      <app-route-badge [route]="t.route" />
+      @switch (t.status) {
+        @case ('live') {
+          <span class="status-tag live">● Live</span>
+        }
+        @case ('canceled') {
+          <span class="status-tag canceled">Canceled</span>
+        }
+        @default {
+          <span class="status-tag skipped">Scheduled</span>
+        }
+      }
+    </div>
+    <h1>{{ tripLabel(t) }} <span class="muted">to {{ t.headsign | stationName }}</span></h1>
+    <p class="facts small muted">
+      <span>{{ t.service_date | serviceDay }}</span>
+      @if (t.bikes_allowed) {
+        <span>🚲 Bikes OK</span>
+      }
+      @if (t.wheelchair_accessible) {
+        <span>♿ Accessible</span>
+      }
+      @if (trip.refreshing()) {
+        <span>Updating…</span>
+      } @else if (updated()) {
+        <span>Updated {{ updated() }}</span>
+      }
+    </p>
+  </header>
+
+  @if (trip.error(); as e) {
+    <p class="notice" role="alert">Couldn't refresh — {{ e.title.toLowerCase() }}. Showing earlier times.</p>
+  }
+
+  @if (t.vehicle; as v) {
+    <div class="vehicle card">
+      <span class="pulse" aria-hidden="true"></span>
+      <div>
+        <strong>{{ vehicleLine() }}</strong>
+        @if (vehicleAge()) {
+          <span class="small muted"> · updated {{ vehicleAge() }}</span>
+        }
+      </div>
+      <a class="btn ghost small" routerLink="/map" [queryParams]="{ vehicle: vehicleKey(v) }">Map</a>
+    </div>
+  }
+
+  <ol class="stops card">
+    @for (r of rows(); track r.stop.sequence) {
+      <li
+        class="stop"
+        [class.passed]="r.passed"
+        [class.skipped]="r.stop.skipped"
+        [class.here]="r.vehicleHere !== undefined"
+      >
+        <span class="rail" aria-hidden="true"><span class="node"></span></span>
+        <a class="name" [routerLink]="['/stations', r.stop.station_id]">{{ r.stop.name | stationName }}</a>
+        <span class="time">
+          @if (r.stop.skipped) {
+            <span class="status-tag skipped">Skipped</span>
+          } @else {
+            <app-stop-time [time]="r.time" [canceled]="t.status === 'canceled'" />
+          }
+        </span>
+        @if (r.vehicleHere !== undefined) {
+          <span class="here-tag small">{{ noun() }} is {{ r.vehicleHere === 'stopped_at' ? 'here' : 'approaching' }}</span>
+        }
+      </li>
+    }
+  </ol>
+} @else if (trip.error(); as e) {
+  <app-state
+    [kind]="e.kind === 'not-found' || e.kind === 'no-feed' ? 'empty' : 'error'"
+    [title]="e.kind === 'not-found' ? 'That trip doesn’t run that day' : e.title"
+    [message]="e.kind === 'not-found' ? 'It may run on weekdays only, or the date has passed.' : e.message"
+  >
+    @if (e.kind === 'not-found') {
+      <a class="btn" routerLink="/">Plan a trip</a>
+    } @else {
+      <button type="button" class="btn" (click)="trip.reload()">Try again</button>
+    }
+  </app-state>
+} @else {
+  <app-state kind="loading" title="Loading trip…" />
+}

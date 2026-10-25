@@ -1,0 +1,7 @@
+route_id,service_id,trip_id,trip_headsign,trip_short_name,direction_id,shape_id,bikes_allowed,wheelchair_accessible
+LOC,WK,T1,North,101,0,s_nb,1,1
+EXP,WK,T2,North,201,0,,,
+LOC,WK,T3,South,103,1,,,
+LOC,WE,T4,North,401,0,s_nb,,
+LOC,HOL,T5,North,501,0,,,
+LOC,WK,T6,North,105,0,,,
