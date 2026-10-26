@@ -1,5 +1,5 @@
 import type { Agency, Place, Route, RouteRef } from '../api/models';
-import { chooseScope, needsLine, readPlan, routeLabel, sortRoutes } from './plan-scope';
+import { chooseScope, needsLine, readPlan, rememberedPlan, routeLabel, sortRoutes, withQuery } from './plan-scope';
 
 const agency = (id: string, places: number): Agency => ({
   id,
@@ -75,5 +75,43 @@ describe('plan scope helpers', () => {
     });
     expect(routeLabel(r('ECR', 'El Camino Real'))).toBe('ECR · El Camino Real');
     expect(sortRoutes([r('ECR'), r('292'), r('10'), r('2')]).map((x) => x.short_name)).toEqual(['2', '10', '292', 'ECR']);
+  });
+});
+
+describe('rememberedPlan', () => {
+  const none = { plan: null, trip: null, legacyTrip: null };
+
+  it('reads the per-agency plan', () => {
+    const plan = { agency: 'BA', route: null, from: 'a', to: 'b' };
+    expect(rememberedPlan('RG', { ...none, plan, trip: { from: { id: 'x' } } })).toEqual(plan);
+  });
+
+  it('falls back to the last pair of places', () => {
+    const trip = { from: { id: 'a', name: 'A' }, to: { id: 'b', name: 'B' } };
+    expect(rememberedPlan('RG', { ...none, trip })).toEqual({ agency: null, route: null, from: 'a', to: 'b' });
+  });
+
+  it('falls back to the Caltrain-only app on the regional feed only', () => {
+    const legacyTrip = { from: 'x', to: 'y' };
+    expect(rememberedPlan('RG', { ...none, legacyTrip })).toMatchObject({ from: 'x', to: 'y' });
+    expect(rememberedPlan('CT', { ...none, legacyTrip })).toMatchObject({ from: '', to: '' });
+  });
+});
+
+describe('withQuery', () => {
+  it('keeps the remembered places with no query', () => {
+    expect(withQuery({ from: 'a', to: 'b' }, {})).toEqual({ from: 'a', to: 'b' });
+  });
+
+  it('plans from the given place, keeping the destination', () => {
+    expect(withQuery({ from: 'a', to: 'b' }, { from: 'c' })).toEqual({ from: 'c', to: 'b' });
+  });
+
+  it('flips the trip when planning from where it went', () => {
+    expect(withQuery({ from: 'a', to: 'b' }, { from: 'b' })).toEqual({ from: 'b', to: 'a' });
+  });
+
+  it('never plans from a place to itself', () => {
+    expect(withQuery({ from: 'a', to: 'b' }, { to: 'a' })).toEqual({ from: 'a', to: '' });
   });
 });

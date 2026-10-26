@@ -1,9 +1,8 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { Component, input } from '@angular/core';
 
 /** Loading, error and empty states, all in one calm box. Project actions as content. */
 @Component({
   selector: 'app-state',
-  changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '[attr.data-kind]': 'kind()', role: 'status', '[attr.aria-busy]': "kind() === 'loading'" },
   template: `
     @if (kind() === 'loading') {

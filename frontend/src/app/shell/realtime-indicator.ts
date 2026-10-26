@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { ClockService } from '../core/clock.service';
 import { OperatorService } from '../core/operator.service';
 import { realtimeLabel } from '../lib/staleness';
@@ -6,7 +6,6 @@ import { formatAge, formatTime } from '../lib/time';
 
 @Component({
   selector: 'app-realtime-indicator',
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (op.operator()) {
       <span class="pill" [attr.data-status]="rt().status" [attr.title]="tooltip()">

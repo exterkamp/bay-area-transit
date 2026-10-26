@@ -2,6 +2,7 @@
 
 import type { Agency, AgencyId, Place, Route } from '../api/models';
 import { compareAgencies } from './agencies';
+import { legacyPairIds, readPair } from './places';
 
 /**
  * Agencies calling at more places than this (Muni's 257 stops, SamTrans's
@@ -31,6 +32,46 @@ export function readPlan(raw: unknown): RememberedPlan {
   const from = str(r['from']);
   const to = str(r['to']);
   return { agency: str(r['agency']) || null, route: str(r['route']) || null, from, to: to === from ? '' : to };
+}
+
+/**
+ * The plan remembered for an operator, as stored under `plan`; else the
+ * places from before plans were per agency (`trip`), else the Caltrain-only
+ * app's (`legacyTrip`, regional feed only).
+ */
+export function rememberedPlan(
+  code: string,
+  stored: { plan: unknown; trip: unknown; legacyTrip: unknown },
+): RememberedPlan {
+  const saved = readPlan(stored.plan);
+  if (saved.agency || saved.from || saved.to) return saved;
+  const pair = readPair(stored.trip);
+  let from = pair.from?.id ?? '';
+  let to = pair.to?.id ?? '';
+  if (!from && !to && code === 'RG') {
+    const legacy = legacyPairIds(stored.legacyTrip);
+    from = legacy?.from ?? '';
+    to = legacy?.to ?? '';
+  }
+  return { ...saved, from, to: to === from ? '' : to };
+}
+
+/**
+ * ?from=&to= on the link (e.g. "Plan from here" on a board) over the
+ * remembered places. "Plan from here" at the place you last went *to*
+ * flips the remembered trip.
+ */
+export function withQuery(
+  saved: { from: string; to: string },
+  query: { from?: string; to?: string },
+): { from: string; to: string } {
+  let { from, to } = saved;
+  if (query.from && from !== query.from) {
+    if (!query.to && to === query.from) to = from;
+    from = query.from;
+  }
+  if (query.to) to = query.to;
+  return { from, to: to === from ? '' : to };
 }
 
 /** Lines by name, numbers in numeric order: 1, 2, 10, ECR. */

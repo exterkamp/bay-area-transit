@@ -1,6 +1,8 @@
 import { httpResource } from '@angular/common/http';
-import { DestroyRef, Signal, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Signal, computed, linkedSignal, untracked } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ApiErrorView, classifyError } from '../lib/api-error';
+import { whileVisible } from './visible';
 
 export interface Polled<T> {
   /** The latest good response for the current URL; kept through refresh failures. */
@@ -30,6 +32,12 @@ export interface PolledOptions {
   keepPreviousWhile?: (previousUrl: string, nextUrl: string) => boolean;
 }
 
+interface Good<T> {
+  url: string;
+  value: T;
+  at: number;
+}
+
 /**
  * An httpResource that a page can poll without flicker: it remembers the last
  * good value so a failed refresh shows an inline warning over stale data
@@ -37,63 +45,45 @@ export interface PolledOptions {
  */
 export function polled<T>(url: () => string | undefined, opts: PolledOptions = {}): Polled<T> {
   const ref = httpResource<T>(() => url());
-  const last = signal<{ url: string; value: T; at: number } | null>(null);
 
-  effect(() => {
-    if (ref.hasValue()) {
-      const value = ref.value() as T;
+  // Each response replaces the last good one; loading and errors keep it.
+  const last = linkedSignal<T | undefined, Good<T> | null>({
+    source: () => (ref.hasValue() ? (ref.value() as T) : undefined),
+    computation: (value, previous) => {
       const u = untracked(url);
-      if (u) last.set({ url: u, value, at: Date.now() });
-    }
+      return value !== undefined && u ? { url: u, value, at: Date.now() } : (previous?.value ?? null);
+    },
   });
 
-  const keep = (prev: string, cur: string | undefined) =>
-    !!cur && (prev === cur || !!opts.keepPreviousWhile?.(prev, cur));
-
-  const data = computed<T | undefined>(() => {
-    if (ref.hasValue()) return ref.value() as T;
+  // The last good response, if it's for this URL (or one close enough to show meanwhile).
+  const kept = computed(() => {
     const l = last();
-    return l && keep(l.url, url()) ? l.value : undefined;
+    const cur = url();
+    return l && cur && (l.url === cur || opts.keepPreviousWhile?.(l.url, cur)) ? l : null;
   });
 
-  const error = computed<ApiErrorView | null>(() =>
-    ref.status() === 'error' ? classifyError(ref.error(), opts.what) : null,
-  );
-
-  const inFlight = computed(() => ref.isLoading());
+  const data = computed<T | undefined>(() => (ref.hasValue() ? (ref.value() as T) : kept()?.value));
+  const inFlight = ref.isLoading;
 
   const reload = () => {
     if (untracked(url)) ref.reload();
   };
 
-  if (opts.intervalMs && typeof window !== 'undefined') {
+  if (opts.intervalMs) {
     const enabled = opts.enabled ?? (() => true);
-    let lastTick = Date.now();
-    const tick = () => {
-      if (document.hidden || !untracked(enabled)) return;
-      lastTick = Date.now();
-      reload();
-    };
-    const id = setInterval(tick, opts.intervalMs);
-    const onVisible = () => {
-      if (!document.hidden && Date.now() - lastTick >= opts.intervalMs!) tick();
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    inject(DestroyRef).onDestroy(() => {
-      clearInterval(id);
-      document.removeEventListener('visibilitychange', onVisible);
-    });
+    whileVisible(opts.intervalMs)
+      .pipe(takeUntilDestroyed())
+      .subscribe(() => {
+        if (untracked(enabled)) reload();
+      });
   }
 
   return {
     data,
-    error,
+    error: computed(() => (ref.status() === 'error' ? classifyError(ref.error(), opts.what) : null)),
     loading: computed(() => inFlight() && data() === undefined),
     refreshing: computed(() => inFlight() && data() !== undefined),
-    updatedAt: computed(() => {
-      const l = last();
-      return l && keep(l.url, url()) ? l.at : null;
-    }),
+    updatedAt: computed(() => kept()?.at ?? null),
     reload,
   };
 }

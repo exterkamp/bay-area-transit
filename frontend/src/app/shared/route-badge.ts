@@ -1,10 +1,9 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { Component, computed, input } from '@angular/core';
 import type { RouteRef } from '../api/models';
 import { safeColor } from '../lib/format';
 
 @Component({
   selector: 'app-route-badge',
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<span class="route-badge" [style.background]="bg()" [style.color]="fg()">{{ label() }}</span>`,
   styles: `
     :host { display: inline-flex; }

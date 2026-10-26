@@ -1,20 +1,15 @@
-import { DestroyRef, Injectable, inject, signal } from '@angular/core';
+import { Service } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { EMPTY, Observable, filter, fromEvent, interval, map, merge } from 'rxjs';
 
-/** A coarse "now" for countdowns and staleness, ticking every 15 s. */
-@Injectable({ providedIn: 'root' })
+/** Every 15 s, and on coming back to the tab. */
+function ticks(): Observable<unknown> {
+  if (typeof document === 'undefined') return EMPTY;
+  return merge(interval(15_000), fromEvent(document, 'visibilitychange').pipe(filter(() => !document.hidden)));
+}
+
+/** A coarse "now" for countdowns and staleness. */
+@Service()
 export class ClockService {
-  private readonly _now = signal(Date.now());
-  readonly now = this._now.asReadonly();
-
-  constructor() {
-    const id = setInterval(() => this._now.set(Date.now()), 15_000);
-    const onVisible = () => {
-      if (!document.hidden) this._now.set(Date.now());
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    inject(DestroyRef).onDestroy(() => {
-      clearInterval(id);
-      document.removeEventListener('visibilitychange', onVisible);
-    });
-  }
+  readonly now = toSignal(ticks().pipe(map(() => Date.now())), { initialValue: Date.now() });
 }

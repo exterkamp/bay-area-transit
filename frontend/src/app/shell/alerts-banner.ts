@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import type { Alert } from '../api/models';
 import { AlertsService } from '../core/alerts.service';
 import { OperatorService } from '../core/operator.service';
@@ -6,7 +6,6 @@ import { alertAgencies, humanizeEnum, safeHttpUrl } from '../lib/format';
 
 @Component({
   selector: 'app-alerts-banner',
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (collapsed()) {
       <section class="alerts" aria-label="Service alerts">
