@@ -50,8 +50,10 @@ Treasure Island ferries.
   constrained schema, polls GTFS-realtime, and serves a read-only JSON API
   ([docs/api.md](docs/api.md)): trip planning, departure boards, trip
   detail, live vehicles and alerts.
-- **frontend/**: Angular 22. Place search, trip planner, departure boards,
-  trip detail and a Leaflet map with per-agency layers and live vehicles.
+- **frontend/**: Angular 22, zoneless, signals throughout. Trip planner
+  (an NgRx SignalStore), departure boards, trip detail and a Leaflet map
+  with per-agency layers and live vehicles. Polled reads are `httpResource`s
+  that keep their last good value through a failed refresh.
 - **docker-compose.yml**: `db` (PostGIS), `backend` (gunicorn), `worker`
   (feed refresh and realtime poller) and `web` (nginx serving the built
   frontend and proxying `/api`).

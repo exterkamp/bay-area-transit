@@ -1,7 +1,7 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Service, computed, inject } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router } from '@angular/router';
-import { filter } from 'rxjs';
+import { filter, map } from 'rxjs';
 import type { Agency, AgencyId, Operator } from '../api/models';
 import { apiUrls } from '../api/urls';
 import { agencyName, compareAgencies } from '../lib/agencies';
@@ -21,12 +21,21 @@ const FALLBACK_TZ = 'America/Los_Angeles';
  * feed; the choice sticks for the rest of the session even on links that
  * don't carry it.
  */
-@Injectable({ providedIn: 'root' })
+@Service()
 export class OperatorService {
   private readonly clock = inject(ClockService);
   private readonly router = inject(Router);
 
-  readonly code = signal(DEFAULT_OPERATOR);
+  /** The last ?op= seen; links without one keep it. */
+  readonly code = toSignal(
+    this.router.events.pipe(
+      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+      map((e) => this.router.parseUrl(e.urlAfterRedirects).queryParamMap.get('op')),
+      filter((op): op is string => !!op),
+      map((op) => normalizeOperator(op, DEFAULT_OPERATOR)),
+    ),
+    { initialValue: DEFAULT_OPERATOR },
+  );
 
   /** Refreshed every 30 s so "Updated …" moves soon after each realtime poll. */
   readonly operators = polled<Operator[]>(() => apiUrls.operators(), { intervalMs: 30_000 });
@@ -65,17 +74,5 @@ export class OperatorService {
   /** "Muni", or the feed's own name for an agency we have no short name for. */
   agencyName(id: AgencyId): string {
     return agencyName(id, this.agencies.data()?.find((a) => a.id === id)?.name);
-  }
-
-  constructor() {
-    this.router.events
-      .pipe(
-        filter((e): e is NavigationEnd => e instanceof NavigationEnd),
-        takeUntilDestroyed(),
-      )
-      .subscribe((e) => {
-        const op = this.router.parseUrl(e.urlAfterRedirects).queryParamMap.get('op');
-        if (op) this.code.set(normalizeOperator(op, DEFAULT_OPERATOR));
-      });
   }
 }

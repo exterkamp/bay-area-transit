@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { ClockService } from '../core/clock.service';
 import { OperatorService } from '../core/operator.service';
 import { dateInRange, todayInZone } from '../lib/time';
@@ -7,7 +7,6 @@ import { DayPipe } from '../shared/time.pipe';
 /** The timetable's dates, a warning when they don't cover today, and credits. */
 @Component({
   selector: 'app-feed-note',
-  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [DayPipe],
   template: `
     @if (op.feed(); as f) {

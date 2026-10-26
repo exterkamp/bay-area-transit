@@ -1,6 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import {
-  ChangeDetectionStrategy,
+  
   Component,
   DestroyRef,
   ElementRef,
@@ -9,6 +9,7 @@ import {
   effect,
   inject,
   input,
+  linkedSignal,
   WritableSignal,
   signal,
   untracked,
@@ -17,7 +18,7 @@ import {
 import { Router } from '@angular/router';
 import * as L from 'leaflet';
 import { firstValueFrom } from 'rxjs';
-import type { AgencyId, Place, Route, ShapeCollection, Vehicle } from '../../api/models';
+import type { Agency, AgencyId, Place, Route, ShapeCollection, Vehicle } from '../../api/models';
 import { apiUrls } from '../../api/urls';
 import { ClockService } from '../../core/clock.service';
 import { OperatorService } from '../../core/operator.service';
@@ -54,13 +55,13 @@ const PANE_Z: Record<MapTop, { routes: string; stations: string }> = {
 /** Shown by default: rail of every kind, and ferries. Bus networks are opt-in. */
 const DEFAULT_TYPES = new Set([0, 1, 2, 4, 5, 12]);
 
-/** One agency's lines and places, fetched once per visit and kept. */
 /** Routes standing out from the rest: a tapped line, or a legend pick (its key). */
 interface Highlight {
   routes: ReadonlySet<string>;
   legend?: string;
 }
 
+/** One agency's lines and places, fetched once per visit and kept. */
 interface AgencyLayers {
   shapes: L.LayerGroup;
   casing: L.GeoJSON;
@@ -77,7 +78,6 @@ const VEHICLE_STATUS: Record<string, string> = {
 
 @Component({
   selector: 'app-map-page',
-  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [StateView, FeedNote],
   templateUrl: './map-page.html',
   styleUrl: './map-page.scss',
@@ -96,8 +96,11 @@ export class MapPage {
 
   private readonly code = computed(() => (this.op.noFeed() ? undefined : this.op.code()));
 
-  /** Agencies drawn on the map; null until the agency list is known. */
-  protected readonly selected = signal<ReadonlySet<AgencyId> | null>(null);
+  /** Agencies drawn on the map; null until the agency list is known. Starts with whatever was shown last time, else rail. */
+  protected readonly selected = linkedSignal<Agency[] | undefined, ReadonlySet<AgencyId> | null>({
+    source: () => this.op.agencies.data(),
+    computation: (agencies, previous) => previous?.value ?? (agencies ? this.initialAgencies(agencies) : null),
+  });
   protected readonly loadingAgencies = signal<ReadonlySet<AgencyId>>(new Set());
   protected readonly failedAgencies = signal<ReadonlySet<AgencyId>>(new Set());
 
@@ -152,7 +155,12 @@ export class MapPage {
   private readonly renderer = L.canvas({ padding: 0.5, pane: 'stations', tolerance: 6 });
   protected readonly top = signal<MapTop>(this.storedTop());
   private readonly highlighted = signal<Highlight | null>(null);
-  protected readonly legendPicked = computed(() => this.highlighted()?.legend ?? null);
+  /** What's highlighted; a picked line whose agency was turned off is gone from the legend, and so is its pick. */
+  private readonly highlight = computed(() => {
+    const h = this.highlighted();
+    return h?.legend && !this.legend().some((e) => e.key === h.legend) ? null : h;
+  });
+  protected readonly legendPicked = computed(() => this.highlight()?.legend ?? null);
   private readonly vehicleLayer = L.layerGroup();
   private readonly vehicleMarkers = new Map<string, L.Marker>();
   protected fitted = false;
@@ -196,26 +204,19 @@ export class MapPage {
       this.map()?.remove();
     });
 
-    // Start with the rail agencies, or whatever was shown last time.
-    effect(() => {
-      const agencies = this.op.agencies.data();
-      if (!agencies || this.selected()) return;
-      const ids = new Set(agencies.map((a) => a.id));
-      const stored = readJson<unknown>(STORAGE_KEYS.mapAgencies(this.op.code()), null);
-      const remembered = Array.isArray(stored) ? stored.filter((id): id is string => ids.has(id)) : [];
-      const shown = agencies.filter((a) => a.route_types.some((t) => DEFAULT_TYPES.has(t))).map((a) => a.id);
-      this.selected.set(new Set(remembered.length ? remembered : shown.length ? shown : [...ids]));
-    });
     effect(() => this.syncLayers(this.map(), this.selected()));
     effect(() => this.applyTop(this.map(), this.top()));
-    effect(() => this.applyHighlight(this.highlighted()));
-    // A picked line whose agency was turned off is gone from the legend.
-    effect(() => {
-      const key = this.legendPicked();
-      if (key && !this.legend().some((e) => e.key === key)) this.highlighted.set(null);
-    });
+    effect(() => this.applyHighlight(this.highlight()));
     effect(() => this.drawVehicles(this.map(), this.vehicles.data()));
     effect(() => this.focusVehicle(this.map(), this.vehicles.data(), this.vehicle()));
+  }
+
+  private initialAgencies(agencies: Agency[]): ReadonlySet<AgencyId> {
+    const ids = new Set(agencies.map((a) => a.id));
+    const stored = readJson<unknown>(STORAGE_KEYS.mapAgencies(this.op.code()), null);
+    const remembered = Array.isArray(stored) ? stored.filter((id): id is string => ids.has(id)) : [];
+    const shown = agencies.filter((a) => a.route_types.some((t) => DEFAULT_TYPES.has(t))).map((a) => a.id);
+    return new Set(remembered.length ? remembered : shown.length ? shown : [...ids]);
   }
 
   protected readonly failedNames = computed(() =>
@@ -285,7 +286,7 @@ export class MapPage {
 
   /** A tapped line's highlight lasts as long as its popup; a legend pick until unpicked. */
   private dropTapHighlight(): void {
-    if (!untracked(this.highlighted)?.legend) this.highlighted.set(null);
+    if (!untracked(this.highlight)?.legend) this.highlighted.set(null);
   }
 
   protected pickLegend(e: LegendEntry): void {
@@ -394,7 +395,7 @@ export class MapPage {
       },
     });
     const shapes = L.layerGroup([casing, lines]);
-    const h = untracked(this.highlighted);
+    const h = untracked(this.highlight);
     if (h) queueMicrotask(() => this.applyHighlight(h));
     return { shapes, casing, lines };
   }
@@ -455,7 +456,7 @@ export class MapPage {
 
   private drawVehicles(m: L.Map | null, list: Vehicle[] | undefined): void {
     if (!m || !list) return;
-    const h = untracked(this.highlighted);
+    const h = untracked(this.highlight);
     const seen = new Set<string>();
     for (const v of list) {
       const key = vehicleKey(v);

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, input } from '@angular/core';
+import { Component, computed, effect, inject, input } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import type { StopTime, TripDetail, TripStop, VehicleStatus } from '../../api/models';
@@ -33,7 +33,6 @@ const VEHICLE_TEXT: Record<Exclude<VehicleStatus, null>, string> = {
 
 @Component({
   selector: 'app-trip-page',
-  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, RouteBadge, StateView, StopTimeView, ServiceDayPipe, StationNamePipe],
   templateUrl: './trip-page.html',
   styleUrl: './trip-page.scss',

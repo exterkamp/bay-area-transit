@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+import { Component, computed, inject, input } from '@angular/core';
 import type { AgencyId } from '../api/models';
 import { OperatorService } from '../core/operator.service';
 import { compareAgencies } from '../lib/agencies';
@@ -6,7 +6,6 @@ import { compareAgencies } from '../lib/agencies';
 /** "Muni" "BART" pills for the agencies serving a place. */
 @Component({
   selector: 'app-agency-chips',
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `@for (id of sorted(); track id) {<span class="chip">{{ op.agencyName(id) }}</span>}`,
   styles: `
     :host { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }

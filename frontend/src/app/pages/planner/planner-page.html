@@ -10,23 +10,23 @@
   <section class="card planner" aria-labelledby="plan-h">
     <h1 id="plan-h" class="visually-hidden">Plan a trip</h1>
 
-    @if (agencies().length > 1) {
+    @if (store.agencies().length > 1) {
       <div class="toggles" role="group" aria-label="Agency">
-        @for (a of agencies(); track a.id) {
-          <button type="button" class="toggle" [attr.aria-pressed]="agency() === a.id" (click)="setAgency(a.id)">
+        @for (a of store.agencies(); track a.id) {
+          <button type="button" class="toggle" [attr.aria-pressed]="store.agency() === a.id" (click)="store.setAgency(a.id)">
             {{ op.agencyName(a.id) }}
           </button>
         }
       </div>
     }
 
-    @if (lineFirst()) {
+    @if (store.lineFirst()) {
       <label class="field">
         <span>Line</span>
-        <select class="control" [disabled]="!lines().length" (change)="setRoute($any($event.target).value)">
-          <option value="" [selected]="!route()">{{ lines().length ? 'Choose a line' : 'Loading lines…' }}</option>
-          @for (r of lines(); track r.id) {
-            <option [value]="r.id" [selected]="r.id === route()">{{ routeLabel(r) }}</option>
+        <select class="control" [disabled]="!store.lines().length" (change)="store.setRoute($any($event.target).value)">
+          <option value="" [selected]="!store.route()">{{ store.lines().length ? 'Choose a line' : 'Loading lines…' }}</option>
+          @for (r of store.lines(); track r.id) {
+            <option [value]="r.id" [selected]="r.id === store.route()">{{ routeLabel(r) }}</option>
           }
         </select>
       </label>
@@ -35,10 +35,10 @@
     <div class="pair">
       <label class="field">
         <span>From</span>
-        <select class="control" [disabled]="!stationList().length" (change)="setFrom($any($event.target).value)">
-          <option value="" [selected]="!fromId()">{{ placeholder() }}</option>
-          @for (p of stationList(); track p.id) {
-            <option [value]="p.id" [selected]="p.id === fromId()">{{ p.name | stationName }}</option>
+        <select class="control" [disabled]="!store.stationList().length" (change)="store.setFrom($any($event.target).value)">
+          <option value="" [selected]="!store.fromId()">{{ store.placeholder() }}</option>
+          @for (p of store.stationList(); track p.id) {
+            <option [value]="p.id" [selected]="p.id === store.fromId()">{{ p.name | stationName }}</option>
           }
         </select>
       </label>
@@ -46,8 +46,8 @@
       <button
         type="button"
         class="swap"
-        (click)="swap()"
-        [disabled]="!fromId() && !toId()"
+        (click)="store.swap()"
+        [disabled]="!store.fromId() && !store.toId()"
         aria-label="Swap from and to"
         title="Swap"
       >
@@ -59,10 +59,10 @@
 
       <label class="field">
         <span>To</span>
-        <select class="control" [disabled]="!stationList().length" (change)="setTo($any($event.target).value)">
-          <option value="" [selected]="!toId()">{{ placeholder() }}</option>
-          @for (p of stationList(); track p.id) {
-            <option [value]="p.id" [selected]="p.id === toId()">{{ p.name | stationName }}</option>
+        <select class="control" [disabled]="!store.stationList().length" (change)="store.setTo($any($event.target).value)">
+          <option value="" [selected]="!store.toId()">{{ store.placeholder() }}</option>
+          @for (p of store.stationList(); track p.id) {
+            <option [value]="p.id" [selected]="p.id === store.toId()">{{ p.name | stationName }}</option>
           }
         </select>
       </label>
@@ -70,40 +70,40 @@
 
     <div class="when">
       <div class="segmented" role="group" aria-label="When">
-        <button type="button" [attr.aria-pressed]="mode() === 'now'" (click)="setMode('now')">Leave now</button>
-        <button type="button" [attr.aria-pressed]="mode() === 'at'" (click)="setMode('at')">Depart at</button>
+        <button type="button" [attr.aria-pressed]="store.mode() === 'now'" (click)="store.setMode('now')">Leave now</button>
+        <button type="button" [attr.aria-pressed]="store.mode() === 'at'" (click)="store.setMode('at')">Depart at</button>
       </div>
-      @if (mode() === 'at') {
+      @if (store.mode() === 'at') {
         <label class="at">
           <span class="visually-hidden">Departure date and time ({{ op.timeZone() }})</span>
           <input
             class="control"
             type="datetime-local"
-            [value]="at()"
-            (change)="setAt($any($event.target).value)"
+            [value]="store.at()"
+            (change)="store.setAt($any($event.target).value)"
           />
         </label>
       }
     </div>
   </section>
 
-  @if (sameStation()) {
-    <app-state kind="empty" title="Pick two different {{ placeNoun() }}s" />
-  } @else if (stations.error()) {
-    <app-state kind="error" title="Couldn't load the {{ placeNoun() }}s">
-      <button type="button" class="btn" (click)="stations.reload()">Try again</button>
+  @if (store.sameStation()) {
+    <app-state kind="empty" title="Pick two different {{ store.placeNoun() }}s" />
+  } @else if (store.stationsError()) {
+    <app-state kind="error" title="Couldn't load the {{ store.placeNoun() }}s">
+      <button type="button" class="btn" (click)="store.reloadStations()">Try again</button>
     </app-state>
-  } @else if (!fromId() || !toId() || (lineFirst() && !route())) {
-    @if (restored() === op.code()) {
+  } @else if (!store.fromId() || !store.toId() || (store.lineFirst() && !store.route())) {
+    @if (store.restored()) {
       <app-state
         kind="empty"
         title="Where are you headed?"
-        [message]="lineFirst() && !route() ? 'Pick a line, then the stops to go from and to.' : 'Pick the ' + placeNoun() + 's to go from and to.'"
+        [message]="store.lineFirst() && !store.route() ? 'Pick a line, then the stops to go from and to.' : 'Pick the ' + store.placeNoun() + 's to go from and to.'"
       />
     }
   } @else {
     <section class="results" aria-live="polite" aria-labelledby="results-h">
-      @if (plan.data(); as p) {
+      @if (store.plan.data(); as p) {
         <header class="results-head">
           <h2 id="results-h">
             <a [routerLink]="['/stations', p.from.id]">{{ p.from.name | stationName }}</a>
@@ -111,19 +111,19 @@
             <a [routerLink]="['/stations', p.to.id]">{{ p.to.name | stationName }}</a>
           </h2>
           <p class="sub muted small">
-            @if (fare()) {
-              <span class="fare">{{ fare() }}</span>
+            @if (store.fare()) {
+              <span class="fare">{{ store.fare() }}</span>
               <span aria-hidden="true">·</span>
             }
-            @if (plan.refreshing()) {
+            @if (store.plan.refreshing()) {
               <span>Updating…</span>
-            } @else if (updated()) {
-              <span>{{ mode() === 'now' ? 'Updated' : 'As of' }} {{ updated() }}</span>
+            } @else if (store.updated()) {
+              <span>{{ store.mode() === 'now' ? 'Updated' : 'As of' }} {{ store.updated() }}</span>
             }
           </p>
         </header>
 
-        @if (plan.error(); as e) {
+        @if (store.plan.error(); as e) {
           <p class="notice" role="alert">Couldn't refresh — {{ e.title.toLowerCase() }}. Showing earlier results.</p>
         }
 
@@ -172,15 +172,15 @@
               </li>
             }
           </ol>
-          @if (canShowMore()) {
+          @if (store.canShowMore()) {
             <div class="more">
-              <button type="button" class="btn" (click)="more()" [disabled]="plan.refreshing()">Later trips</button>
+              <button type="button" class="btn" (click)="store.more()" [disabled]="store.plan.refreshing()">Later trips</button>
             </div>
           }
         }
-      } @else if (plan.error(); as e) {
+      } @else if (store.plan.error(); as e) {
         <app-state kind="error" [title]="e.title" [message]="e.message">
-          <button type="button" class="btn" (click)="plan.reload()">Try again</button>
+          <button type="button" class="btn" (click)="store.plan.reload()">Try again</button>
         </app-state>
       } @else {
         <app-state kind="loading" title="Finding trips…" />

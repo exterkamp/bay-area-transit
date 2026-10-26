@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { Component, computed, input } from '@angular/core';
 import type { StopTime } from '../api/models';
 import { delayInfo, delaySeverity } from '../lib/delay';
 import { formatTime } from '../lib/time';
@@ -9,7 +9,6 @@ import { formatTime } from '../lib/time';
  */
 @Component({
   selector: 'app-stop-time',
-  changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '[class.canceled]': 'canceled()' },
   template: `
     @let i = info();

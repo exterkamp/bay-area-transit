@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, input } from '@angular/core';
+import { Component, computed, effect, inject, input } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import type { Departure, DeparturesResponse, Place } from '../../api/models';
@@ -18,7 +18,6 @@ import { StopTimeView } from '../../shared/stop-time';
 
 @Component({
   selector: 'app-station-page',
-  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, AgencyChips, RouteBadge, StateView, StopTimeView, StationNamePipe],
   templateUrl: './station-page.html',
   styleUrl: './station-page.scss',
