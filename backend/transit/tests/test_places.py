@@ -95,6 +95,18 @@ class TestPlanning:
         result = queries.plan(ctx, "corner", "far", local(*WEDNESDAY, 8))
         assert (result["trips"], result["served"]) == ([], False)
 
+    def test_by_agency_or_route(self, ctx):
+        def trips(**scope):
+            result = queries.plan(ctx, "hub", "far", local(*WEDNESDAY, 7, 30), **scope)
+            wednesday = [t for t in result["trips"] if t["service_date"] == "2026-10-28"]
+            return [t["trip_id"] for t in wednesday], result.get("served")
+
+        assert trips() == (["RA:1", "RA:2"], None)
+        assert trips(agency="RA") == (["RA:1", "RA:2"], None)
+        assert trips(route="RA:CC") == (["RA:2"], None)
+        # Nothing on the buses, ever: not a "runs on other days" empty.
+        assert trips(agency="BU") == ([], False)
+
     def test_same_place_twice_is_a_bad_request(self, ctx):
         with pytest.raises(BadRequest):
             queries.plan(ctx, "elm_n", "elm_s", local(*WEDNESDAY, 8))
@@ -186,6 +198,7 @@ def test_agencies(ctx):
     by_id = {a["id"]: a for a in queries.agencies(ctx)}
     assert set(by_id) == {"RA", "BU", "XX"}
     assert by_id["RA"]["route_types"] == [0, 5]
+    assert (by_id["RA"]["places"], by_id["BU"]["places"]) == (2, 4)
     assert by_id["BU"]["feed"] == {
         "version": "20260301",
         "start_date": "2026-03-01",
@@ -216,6 +229,11 @@ class TestApi:
         assert len(client.get("/api/v1/operators/TT/agencies").json()) == 3
         routes = client.get("/api/v1/operators/TT/routes", {"agency": "BU"}).json()
         assert [(r["id"], r["agency"]) for r in routes] == [("BU:1", "BU")]
+        plan = client.get(
+            "/api/v1/operators/TT/plan",
+            {"from": "hub", "to": "far", "at": "2026-10-28T07:30", "route": "RA:CC"},
+        ).json()
+        assert {t["trip_id"] for t in plan["trips"]} == {"RA:2"}
         operators = client.get("/api/v1/operators").json()
         assert operators[0]["agencies"] == ["BU", "RA", "XX"]
 

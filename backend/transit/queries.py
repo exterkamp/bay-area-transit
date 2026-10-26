@@ -15,7 +15,7 @@ from django.contrib.gis.geos import Point
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.cache import cache
 from django.db import connection
-from django.db.models import Exists, Max, Min, OuterRef, Q
+from django.db.models import Count, Exists, Max, Min, OuterRef, Q
 from django.utils import timezone
 
 from transit.gtfs.calendar import active_service_ids
@@ -132,6 +132,12 @@ def agencies(ctx: Context) -> list[dict]:
         Route.objects.filter(feed=ctx.feed).values_list("agency_id", "route_type").distinct()
     ):
         types.setdefault(agency_pk, set()).add(route_type)
+    places = dict(
+        Place.routes.through.objects.filter(route__feed=ctx.feed)
+        .values("route__agency_id")
+        .annotate(n=Count("place_id", distinct=True))
+        .values_list("route__agency_id", "n")
+    )
     return [
         {
             "id": a.agency_id,
@@ -139,6 +145,7 @@ def agencies(ctx: Context) -> list[dict]:
             "url": a.url,
             "timezone": a.timezone,
             "route_types": sorted(types.get(a.pk, ())),
+            "places": places.get(a.pk, 0),
             "feed": {
                 "version": a.feed_version,
                 "start_date": a.start_date.isoformat(),
@@ -417,7 +424,7 @@ def _search_dates(ctx, at):
     return [today - timedelta(days=1), today, today + timedelta(days=1)]
 
 
-def _boardings(ctx, stop_pks, at, service_date):
+def _boardings(ctx, stop_pks, at, service_date, scope=None):
     services = active_service_ids(ctx.feed, service_date)
     if not services:
         return []
@@ -428,6 +435,7 @@ def _boardings(ctx, stop_pks, at, service_date):
             stop_id__in=stop_pks,
             trip__service_id__in=services,
             departure_secs__gte=max(earliest, 0),
+            **(scope or {}),
         )
         .exclude(pickup_type=PickupDropOff.NONE)
         .values_list("trip_id", "stop_sequence", "stop_id", "departure_secs")
@@ -567,10 +575,12 @@ def _parse_limit(limit, default, maximum=50):
     return value
 
 
-def plan(ctx: Context, from_id, to_id, at: datetime, limit=None) -> dict:
+def plan(ctx: Context, from_id, to_id, at: datetime, limit=None, agency=None, route=None) -> dict:
+    """Direct trips from one place to another, optionally on one agency's or one route's trips."""
     limit = _parse_limit(limit, 10)
     if not from_id or not to_id:
         raise BadRequest("from and to are required")
+    scope = _trip_scope(agency, route)
     origin, destination = find_place(ctx, from_id), find_place(ctx, to_id)
     if origin.pk == destination.pk:
         raise BadRequest("from and to must be different places")
@@ -578,7 +588,7 @@ def plan(ctx: Context, from_id, to_id, at: datetime, limit=None) -> dict:
 
     legs = []
     for service_date in _search_dates(ctx, at):
-        found = _boardings(ctx, _boarding_stop_pks(origin), at, service_date)
+        found = _boardings(ctx, _boarding_stop_pks(origin), at, service_date, scope)
         if not found:
             continue
         alights = {}
@@ -633,11 +643,21 @@ def plan(ctx: Context, from_id, to_id, at: datetime, limit=None) -> dict:
         "trips": trips,
     }
     if not trips:
-        result["served"] = _served_directly(ctx, _boarding_stop_pks(origin), to_pks)
+        result["served"] = _served_directly(ctx, _boarding_stop_pks(origin), to_pks, scope)
     return result
 
 
-def _served_directly(ctx, from_pks, to_pks) -> bool:
+def _trip_scope(agency, route) -> dict:
+    """StopTime filters keeping only one agency's or one route's trips."""
+    scope = {}
+    if agency:
+        scope["trip__route__agency__agency_id__in"] = agency_ids(agency)
+    if route:
+        scope["trip__route__route_id"] = route
+    return scope
+
+
+def _served_directly(ctx, from_pks, to_pks, scope=None) -> bool:
     """Whether any trip, on any day, calls at ``from`` and later at ``to``."""
     later = StopTime.objects.filter(
         trip_id=OuterRef("trip_id"),
@@ -645,7 +665,7 @@ def _served_directly(ctx, from_pks, to_pks) -> bool:
         stop_sequence__gt=OuterRef("stop_sequence"),
     ).exclude(drop_off_type=PickupDropOff.NONE)
     return (
-        StopTime.objects.filter(feed=ctx.feed, stop_id__in=from_pks)
+        StopTime.objects.filter(feed=ctx.feed, stop_id__in=from_pks, **(scope or {}))
         .exclude(pickup_type=PickupDropOff.NONE)
         .filter(Exists(later))
         .exists()

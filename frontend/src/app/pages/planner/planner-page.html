@@ -10,14 +10,44 @@
   <section class="card planner" aria-labelledby="plan-h">
     <h1 id="plan-h" class="visually-hidden">Plan a trip</h1>
 
+    @if (agencies().length > 1) {
+      <div class="toggles" role="group" aria-label="Agency">
+        @for (a of agencies(); track a.id) {
+          <button type="button" class="toggle" [attr.aria-pressed]="agency() === a.id" (click)="setAgency(a.id)">
+            {{ op.agencyName(a.id) }}
+          </button>
+        }
+      </div>
+    }
+
+    @if (lineFirst()) {
+      <label class="field">
+        <span>Line</span>
+        <select class="control" [disabled]="!lines().length" (change)="setRoute($any($event.target).value)">
+          <option value="" [selected]="!route()">{{ lines().length ? 'Choose a line' : 'Loading lines…' }}</option>
+          @for (r of lines(); track r.id) {
+            <option [value]="r.id" [selected]="r.id === route()">{{ routeLabel(r) }}</option>
+          }
+        </select>
+      </label>
+    }
+
     <div class="pair">
-      <app-place-picker label="From" [value]="fromPlace()" [recents]="recents()" (picked)="setFrom($event)" />
+      <label class="field">
+        <span>From</span>
+        <select class="control" [disabled]="!stationList().length" (change)="setFrom($any($event.target).value)">
+          <option value="" [selected]="!fromId()">{{ placeholder() }}</option>
+          @for (p of stationList(); track p.id) {
+            <option [value]="p.id" [selected]="p.id === fromId()">{{ p.name | stationName }}</option>
+          }
+        </select>
+      </label>
 
       <button
         type="button"
         class="swap"
         (click)="swap()"
-        [disabled]="!fromPlace() && !toPlace()"
+        [disabled]="!fromId() && !toId()"
         aria-label="Swap from and to"
         title="Swap"
       >
@@ -27,33 +57,49 @@
         </svg>
       </button>
 
-      <app-place-picker label="To" [value]="toPlace()" [recents]="recents()" (picked)="setTo($event)" />
+      <label class="field">
+        <span>To</span>
+        <select class="control" [disabled]="!stationList().length" (change)="setTo($any($event.target).value)">
+          <option value="" [selected]="!toId()">{{ placeholder() }}</option>
+          @for (p of stationList(); track p.id) {
+            <option [value]="p.id" [selected]="p.id === toId()">{{ p.name | stationName }}</option>
+          }
+        </select>
+      </label>
     </div>
 
-      <div class="when">
-        <div class="segmented" role="group" aria-label="When">
-          <button type="button" [attr.aria-pressed]="mode() === 'now'" (click)="setMode('now')">Leave now</button>
-          <button type="button" [attr.aria-pressed]="mode() === 'at'" (click)="setMode('at')">Depart at</button>
-        </div>
-        @if (mode() === 'at') {
-          <label class="at">
-            <span class="visually-hidden">Departure date and time ({{ op.timeZone() }})</span>
-            <input
-              class="control"
-              type="datetime-local"
-              [value]="at()"
-              (change)="setAt($any($event.target).value)"
-            />
-          </label>
-        }
+    <div class="when">
+      <div class="segmented" role="group" aria-label="When">
+        <button type="button" [attr.aria-pressed]="mode() === 'now'" (click)="setMode('now')">Leave now</button>
+        <button type="button" [attr.aria-pressed]="mode() === 'at'" (click)="setMode('at')">Depart at</button>
       </div>
+      @if (mode() === 'at') {
+        <label class="at">
+          <span class="visually-hidden">Departure date and time ({{ op.timeZone() }})</span>
+          <input
+            class="control"
+            type="datetime-local"
+            [value]="at()"
+            (change)="setAt($any($event.target).value)"
+          />
+        </label>
+      }
+    </div>
   </section>
 
   @if (sameStation()) {
-    <app-state kind="empty" title="Pick two different places" />
-  } @else if (!fromId() || !toId()) {
+    <app-state kind="empty" title="Pick two different {{ placeNoun() }}s" />
+  } @else if (stations.error()) {
+    <app-state kind="error" title="Couldn't load the {{ placeNoun() }}s">
+      <button type="button" class="btn" (click)="stations.reload()">Try again</button>
+    </app-state>
+  } @else if (!fromId() || !toId() || (lineFirst() && !route())) {
     @if (restored() === op.code()) {
-      <app-state kind="empty" title="Where are you headed?" message="Search for a station or stop to go from and to." />
+      <app-state
+        kind="empty"
+        title="Where are you headed?"
+        [message]="lineFirst() && !route() ? 'Pick a line, then the stops to go from and to.' : 'Pick the ' + placeNoun() + 's to go from and to.'"
+      />
     }
   } @else {
     <section class="results" aria-live="polite" aria-labelledby="results-h">

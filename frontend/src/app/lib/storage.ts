@@ -39,12 +39,12 @@ export function writeJson(key: string, value: unknown, store: KeyValueStore | nu
 }
 
 export const STORAGE_KEYS = {
-  /** Last from/to for an operator, as PlaceRefs. */
+  /** Last agency, line and from/to place ids for an operator. */
+  plan: (op: string) => `bat.plan.${op}`,
+  /** Last from/to for an operator, as PlaceRefs, from before plans were per agency. Read once, to migrate. */
   trip: (op: string) => `bat.trip2.${op}`,
   /** The Caltrain-only app's last from/to, as bare station ids. Read once, to migrate. */
   legacyTrip: 'bat.trip.CT',
-  /** Places recently picked, most recent first. */
-  recents: (op: string) => `bat.recents.${op}`,
   /** Which map layer is on top: vehicles, stops or lines. */
   mapTop: 'bat.map.top',
   /** Agencies shown on the map. */

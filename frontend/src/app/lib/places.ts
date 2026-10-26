@@ -1,6 +1,6 @@
-// Place helpers: remembered trips, recent picks, departure groups. Framework-free.
+// Place helpers: remembered trips from before plans were per agency, departure groups. Framework-free.
 
-import type { AgencyId, Departure, Place } from '../api/models';
+import type { AgencyId, Departure } from '../api/models';
 import { compareAgencies } from './agencies';
 
 /** Enough of a place to show and re-request it without a lookup. */
@@ -13,14 +13,6 @@ export interface PlaceRef {
 export interface PlacePair {
   from: PlaceRef | null;
   to: PlaceRef | null;
-}
-
-export function placeRef(p: Pick<Place, 'id' | 'name' | 'agencies'>): PlaceRef {
-  return { id: p.id, name: p.name, agencies: [...p.agencies] };
-}
-
-export function swapPair(p: PlacePair): PlacePair {
-  return { from: p.to, to: p.from };
 }
 
 function isRef(v: unknown): v is PlaceRef {
@@ -65,17 +57,6 @@ export function legacyPairIds(raw: unknown): { from: string; to: string } | null
   const to = id(r['to']);
   if (!from && !to) return null;
   return { from, to: to === from ? '' : to };
-}
-
-export const MAX_RECENTS = 6;
-
-/** Most recent first, no duplicates. */
-export function addRecent(list: readonly PlaceRef[], place: PlaceRef, max = MAX_RECENTS): PlaceRef[] {
-  return [place, ...list.filter((p) => p.id !== place.id)].slice(0, max);
-}
-
-export function readRecents(raw: unknown): PlaceRef[] {
-  return Array.isArray(raw) ? raw.map(asRef).filter((p): p is PlaceRef => !!p).slice(0, MAX_RECENTS) : [];
 }
 
 /** What each agency calls its GTFS directions, where that's consistent. */
@@ -128,10 +109,4 @@ export function topValues(values: readonly string[], n: number): string[] {
     .sort((a, b) => b.count - a.count || a.order - b.order)
     .slice(0, n)
     .map((e) => e.value);
-}
-
-/** "120 m" / "1.4 km". */
-export function formatDistance(meters: number): string {
-  if (meters < 950) return `${Math.max(10, Math.round(meters / 10) * 10)} m`;
-  return `${(meters / 1000).toFixed(1)} km`;
 }

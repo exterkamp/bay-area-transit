@@ -8,14 +8,14 @@ Treasure Island ferries.
 
 <table>
   <tr>
-    <td width="25%"><img src="docs/screenshots/planner.png" alt="Trip planner: Powell to Embarcadero, Muni and BART trips with live times"></td>
-    <td width="25%"><img src="docs/screenshots/search.png" alt="Place search: typing millbr lists Millbrae BART with its agencies, then SamTrans stops"></td>
+    <td width="25%"><img src="docs/screenshots/planner.png" alt="Trip planner with BART picked: Powell to Millbrae BART, trains with live times"></td>
+    <td width="25%"><img src="docs/screenshots/line.png" alt="Trip planner with SamTrans picked: the ECR line, then Daly City BART to El Camino Real and Hillsdale Blvd"></td>
     <td width="25%"><img src="docs/screenshots/board.png" alt="Departure board for Millbrae BART in dark mode, grouped by agency and direction"></td>
     <td width="25%"><img src="docs/screenshots/trip.png" alt="A BART trip with its estimated position, on the way to Glen Park"></td>
   </tr>
   <tr>
-    <td>Plan a trip</td>
-    <td>Search stations and stops</td>
+    <td>Plan a trip on one agency</td>
+    <td>Big agencies: a line, then its stops</td>
     <td>Departure boards</td>
     <td>Trip detail</td>
   </tr>
@@ -25,13 +25,11 @@ Treasure Island ferries.
 
 ## What it does
 
-- **Search** any station or stop by name, forgivingly ("mllbrae" finds
-  Millbrae), or near you. Results show which agencies stop there, with
-  route badges for street stops.
-- **Plan** direct trips across agencies, with live departure and arrival
-  times, delays and cancellations. Places shared by several agencies
-  (Millbrae, Powell, the Ferry Building) plan with all of them. A journey
-  that needs a transfer, or runs only on other days, says so.
+- **Plan** direct trips on one agency at a time, with live departure and
+  arrival times, delays and cancellations. Pick the agency, then its
+  stations from two dropdowns, in line order. Muni and SamTrans have too
+  many stops for one list, so you pick a line first. A journey that needs a
+  transfer, or runs only on other days, says so.
 - **Departure boards** for any place, grouped by agency and direction:
   Northbound/Southbound, Inbound/Outbound, or toward the main destinations.
 - **Trip detail** with every stop's scheduled and predicted times, and

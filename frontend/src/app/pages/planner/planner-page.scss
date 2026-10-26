@@ -137,3 +137,8 @@ li:only-child .trip { border-radius: var(--radius); }
   gap: 0.5rem;
   margin-top: 0.4rem;
 }
+
+// The sideways-scrolling toggle row reaches the card's edges, not the page's.
+@media (max-width: 40rem) {
+  .planner .toggles { margin-inline: -0.9rem; padding-inline: 0.9rem; }
+}

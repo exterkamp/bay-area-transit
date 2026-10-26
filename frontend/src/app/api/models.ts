@@ -58,6 +58,8 @@ export interface Agency {
   timezone: string;
   /** GTFS route types: 0 light rail, 1 subway, 2 rail, 3 bus, 5 cable car. */
   route_types: number[];
+  /** How many places its routes call at. */
+  places: number;
   /** The agency's own timetable within a merged feed; null when the feed doesn't say. */
   feed: { version: string; start_date: IsoDate; end_date: IsoDate } | null;
 }
